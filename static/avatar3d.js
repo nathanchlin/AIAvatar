@@ -98,6 +98,11 @@ export class Avatar3DEngine {
       smoothProx: 0.35,
       smoothRoll: 0,
     };
+    this.gazeCalibration = {
+      offsetX: 0, // [-1, 1] 水平微调（正值向右）
+      offsetY: 0, // [-1, 1] 垂直微调（正值向上）
+    };
+    this._eyeWorldPos = new THREE.Vector3(0, 1.50, 0);
     this._camRight = new THREE.Vector3();
     this._camUp = new THREE.Vector3();
     this._camForward = new THREE.Vector3();
@@ -404,6 +409,16 @@ export class Avatar3DEngine {
       this.cameraGaze.y = Math.max(-1, Math.min(1, Number(gaze.y) || 0));
       this.cameraGaze.proximity = Math.max(0, Math.min(1, Number(gaze.proximity) || 0.35));
       this.cameraGaze.roll = Math.max(-0.45, Math.min(0.45, Number(gaze.roll) || 0));
+    }
+  }
+
+  /** 设置眼神方向校正微调偏移（offsetX/offsetY ∈ [-1, 1]，正值分别向右/向上） */
+  setGazeCalibration(calib = {}) {
+    if (calib.offsetX !== undefined && Number.isFinite(Number(calib.offsetX))) {
+      this.gazeCalibration.offsetX = Math.max(-1, Math.min(1, Number(calib.offsetX)));
+    }
+    if (calib.offsetY !== undefined && Number.isFinite(Number(calib.offsetY))) {
+      this.gazeCalibration.offsetY = Math.max(-1, Math.min(1, Number(calib.offsetY)));
     }
   }
 
@@ -816,10 +831,27 @@ export class Avatar3DEngine {
 
     const gx = this.smoothPointer.x * (1 - w) + this.cameraGaze.smoothX * w;
     const gy = this.smoothPointer.y * (1 - w) + this.cameraGaze.smoothY * w;
-    const spanX = 0.50 + 0.78 * w;
-    const spanY = 0.32 + 0.56 * w;
+    const calX = this.gazeCalibration.offsetX;
+    const calY = this.gazeCalibration.offsetY;
+    const spanX = 0.55 + 0.85 * w;
+    const spanY = 0.48 + 0.72 * w;
+    const calSpanX = 1.65;
+    const calSpanY = 2.15;
     const sacScale = 1 - 0.72 * w;
     const depthPull = w * (this.cameraGaze.smoothProx - 0.35) * 0.25;
+
+    // 获取角色当前眼睛真实世界高度：避免默认相机位于胸口高度导致 lookAt 目标偏低（向下看）
+    if (this.vrm?.lookAt) {
+      this.vrm.lookAt.getLookAtWorldPosition(this._eyeWorldPos);
+    } else {
+      const head = this._getBone("head");
+      if (head) {
+        head.getWorldPosition(this._eyeWorldPos);
+        this._eyeWorldPos.y += 0.06;
+      }
+    }
+    const manualCamLift = this.camera.position.y - this.defaultCamPos.y;
+    const baseAnchorY = this._eyeWorldPos.y + 0.05 + manualCamLift * 0.65;
 
     this.camera.updateMatrixWorld();
     this._camRight.setFromMatrixColumn(this.camera.matrixWorld, 0).normalize();
@@ -827,9 +859,9 @@ export class Avatar3DEngine {
     this._camForward.setFromMatrixColumn(this.camera.matrixWorld, 2).normalize();
 
     this.lookAtObj.position
-      .copy(this.camera.position)
-      .addScaledVector(this._camRight, gx * spanX + this.saccadeCurrent.x * sacScale)
-      .addScaledVector(this._camUp, gy * spanY + this.saccadeCurrent.y * sacScale)
+      .set(this.camera.position.x, baseAnchorY, this.camera.position.z)
+      .addScaledVector(this._camRight, gx * spanX + calX * calSpanX + this.saccadeCurrent.x * sacScale)
+      .addScaledVector(this._camUp, gy * spanY + calY * calSpanY + this.saccadeCurrent.y * sacScale)
       .addScaledVector(this._camForward, -depthPull);
   }
 
@@ -858,9 +890,11 @@ export class Avatar3DEngine {
     let chest = [0.022 * breath, 0.025 * Math.sin(t * 0.41) * idleDriftScale + camX * 0.105 * w, -0.01 * organicZ];
 
     // 头部基础微动 + 语音重音自然轻点 + 摄像头人脸注视（眼神/头颈/上胸自然协同转向用户）
+    const calX = this.gazeCalibration.offsetX;
+    const calY = this.gazeCalibration.offsetY;
     const speechNod = this.state === "speaking" ? (-this.pitchAccent * 0.095 - this.voiceEnergy * 0.035 * Math.sin(t * 5.4)) : 0;
-    const trackYaw = this.smoothPointer.x * 0.16 * (1 - w) + camX * 0.42 * w;
-    const trackPitch = pitchSign * (this.smoothPointer.y * 0.08 * (1 - w) + camY * 0.27 * w);
+    const trackYaw = this.smoothPointer.x * 0.16 * (1 - w) + camX * 0.42 * w + calX * 0.20;
+    const trackPitch = pitchSign * (this.smoothPointer.y * 0.08 * (1 - w) + camY * 0.27 * w + calY * 0.16);
     const trackRoll = camRoll * 0.12 * w;
     let headPitch = 0.018 * Math.sin(t * 1.05) + trackPitch + speechNod;
     let headYaw = 0.045 * organicX * idleDriftScale + trackYaw;

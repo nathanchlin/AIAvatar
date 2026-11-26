@@ -291,6 +291,114 @@
       pointer-events: none !important;
     }
     .cam-pip-wrap.collapsed .cam-pip-collapsed-pill { display: inline-flex; }
+    /* 默认关闭实时摄像头预览画面渲染：将 video 保持 2px 离屏解码（确保 iOS Safari / Chrome 不暂停人脸检测帧），舞台上零画面渲染 */
+    .cam-pip-wrap.preview-off {
+      position: fixed !important;
+      left: -9999px !important;
+      top: -9999px !important;
+      right: auto !important;
+      bottom: auto !important;
+      width: 2px !important;
+      height: 2px !important;
+      opacity: 0 !important;
+      pointer-events: none !important;
+      border: none !important;
+      background: transparent !important;
+      box-shadow: none !important;
+      overflow: hidden !important;
+    }
+    .cam-pip-wrap.preview-off canvas,
+    .cam-pip-wrap.preview-off .cam-pip-status,
+    .cam-pip-wrap.preview-off .cam-pip-actions,
+    .cam-pip-wrap.preview-off .cam-pip-collapsed-pill {
+      display: none !important;
+    }
+
+    /* 眼神方向实时校正微调悬浮条（位于舞台底部，不遮挡人物眼睛，可边看边调） */
+    .gaze-calib-panel {
+      position: absolute;
+      right: 12px;
+      bottom: 12px;
+      z-index: 14;
+      width: min(300px, calc(100% - 24px));
+      padding: 10px 12px;
+      border-radius: 14px;
+      background: rgba(10, 14, 24, 0.88);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(96, 165, 250, 0.42);
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+      display: none;
+      flex-direction: column;
+      gap: 8px;
+      color: var(--text);
+      font-size: 12px;
+    }
+    .gaze-calib-panel.open { display: flex; }
+    .gaze-calib-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-weight: 700;
+      font-size: 12.5px;
+      color: #e2e8f0;
+    }
+    .gaze-calib-row {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .gaze-calib-label {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 11px;
+      color: #cbd5e1;
+    }
+    .gaze-calib-val {
+      font-variant-numeric: tabular-nums;
+      color: var(--accent);
+      font-weight: 700;
+    }
+    .gaze-slider-line {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .gaze-slider-line input[type="range"] {
+      flex: 1;
+      accent-color: #60a5fa;
+      cursor: pointer;
+      height: 6px;
+    }
+    .gaze-nudge-btn {
+      width: 24px;
+      height: 24px;
+      padding: 0;
+      border-radius: 7px;
+      font-size: 12px;
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .gaze-calib-actions {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .gaze-calib-actions button { flex: 1; white-space: nowrap; }
+    .gaze-calib-foot {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding-top: 4px;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      font-size: 11px;
+      color: var(--muted);
+    }
     button.cam-on {
       background: linear-gradient(135deg, #059669, #10b981);
       border-color: rgba(110, 231, 183, 0.65);
@@ -575,8 +683,22 @@
       #modeOverlay { display: none; }
       #btnMobileImmersive { display: inline-block; }
       .stage-badge { top: 10px; left: 10px; padding: 4px 10px; font-size: 12px; }
-      .stage-top-right { top: 10px; right: 10px; gap: 4px; }
+      .stage-top-right {
+        top: 10px;
+        right: 10px;
+        gap: 4px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        max-width: calc(100% - 108px);
+      }
       .cam-reset-btn { padding: 4px 8px; font-size: 11px; }
+      .gaze-calib-panel {
+        left: 8px;
+        right: 8px;
+        bottom: 8px;
+        width: auto;
+        padding: 9px 10px;
+      }
       .cam-pip-wrap {
         width: 86px;
         height: 114px;
@@ -687,18 +809,57 @@
           </div>
           <div class="stage-top-right">
             <div class="mode-pill-overlay" id="modeOverlay">🧍 Three.js 3D 实时对口型 (60fps)</div>
-            <button class="cam-reset-btn" id="btnStageCam" title="调用手机/电脑摄像头让 3D 虚拟形象实时看向你">📷 看向我</button>
+            <button class="cam-reset-btn" id="btnStageCam" title="调用手机/电脑摄像头让 3D 虚拟形象实时看向你（默认后台追踪不渲染摄像头画面）">📷 看向我</button>
+            <button class="cam-reset-btn" id="btnGazeCalib" title="校正并微调 3D 虚拟形象眼睛注视的上下/左右方向">🎯 校准</button>
             <button class="cam-reset-btn" id="btnToggleSub" title="显示或隐藏底部实时字幕条">字幕: 开</button>
             <button class="cam-reset-btn" id="btnResetCam" title="重置 3D 镜头视角">重置视角</button>
             <button class="cam-reset-btn" id="btnMobileImmersive" title="最大化沉浸式全屏人像">⛶ 全屏</button>
           </div>
-          <div class="cam-pip-wrap" id="camPipWrap" aria-label="摄像头人脸追踪预览">
+          <div class="gaze-calib-panel" id="gazeCalibPanel" aria-label="眼神方向校正微调">
+            <div class="gaze-calib-head">
+              <span>🎯 眼神方向校正微调</span>
+              <button type="button" class="mini" id="btnCloseCalib" title="关闭校正面板">✕</button>
+            </div>
+            <div class="gaze-calib-actions">
+              <button type="button" class="mini primary" id="btnCalibCenter" title="正视屏幕后点此将当前人脸位置设为视线中心">🎯 以当前位置居中</button>
+              <button type="button" class="mini" id="btnCalibReset" title="恢复默认眼神基准与零点">↺ 恢复默认</button>
+            </div>
+            <div class="gaze-calib-row">
+              <div class="gaze-calib-label">
+                <span>上下微调（低 ↔ 高）</span>
+                <span class="gaze-calib-val" id="valGazeY">居中 0%</span>
+              </div>
+              <div class="gaze-slider-line">
+                <button type="button" class="gaze-nudge-btn" id="btnGazeYDown" title="向下微调">↓</button>
+                <input type="range" id="rngGazeY" min="-100" max="100" step="2" value="0" />
+                <button type="button" class="gaze-nudge-btn" id="btnGazeYUp" title="向上微调">↑</button>
+              </div>
+            </div>
+            <div class="gaze-calib-row">
+              <div class="gaze-calib-label">
+                <span>左右微调（左 ↔ 右）</span>
+                <span class="gaze-calib-val" id="valGazeX">居中 0%</span>
+              </div>
+              <div class="gaze-slider-line">
+                <button type="button" class="gaze-nudge-btn" id="btnGazeXLeft" title="向左微调">←</button>
+                <input type="range" id="rngGazeX" min="-100" max="100" step="2" value="0" />
+                <button type="button" class="gaze-nudge-btn" id="btnGazeXRight" title="向右微调">→</button>
+              </div>
+            </div>
+            <div class="gaze-calib-foot">
+              <label style="display:flex;align-items:center;gap:5px;cursor:pointer;">
+                <input type="checkbox" id="chkCalibPreview" /> 显示摄像头实时画面
+              </label>
+              <span id="calibCenterHint">默认不渲染画面</span>
+            </div>
+          </div>
+          <div class="cam-pip-wrap preview-off" id="camPipWrap" aria-label="摄像头人脸追踪预览">
             <video id="camPreviewVideo" class="mirrored" playsinline webkit-playsinline muted autoplay></video>
             <canvas id="camOverlayCanvas"></canvas>
             <div class="cam-pip-status"><span class="pip-dot"></span><span id="camPipStatusText">寻找中</span></div>
             <div class="cam-pip-actions">
               <button type="button" class="pip-btn" id="btnPipFlip" title="切换前置/后置摄像头">🔄</button>
-              <button type="button" class="pip-btn" id="btnPipCollapse" title="收起摄像头小窗（保持后台追踪）">—</button>
+              <button type="button" class="pip-btn" id="btnPipCollapse" title="隐藏摄像头画面（保持后台追踪）">—</button>
               <button type="button" class="pip-btn" id="btnPipClose" title="关闭摄像头追踪">✕</button>
             </div>
             <button type="button" class="cam-pip-collapsed-pill" id="btnPipExpand" title="展开摄像头预览">
@@ -835,10 +996,30 @@
               <label class="small-note" style="display:flex;align-items:center;gap:4px;cursor:pointer;">
                 <input type="checkbox" id="chkCamMirror" checked /> 水平镜像
               </label>
-              <label class="small-note" style="display:flex;align-items:center;gap:4px;cursor:pointer;">
-                <input type="checkbox" id="chkCamPreview" checked /> 小窗预览
+              <label class="small-note" style="display:flex;align-items:center;gap:4px;cursor:pointer;" title="默认关闭以减少渲染开销并保护隐私，仅后台追踪人脸方向">
+                <input type="checkbox" id="chkCamPreview" /> 显示摄像头画面
               </label>
               <button class="mini" id="btnFlipCamera" title="切换前置/后置摄像头">🔄 切镜头</button>
+            </div>
+          </div>
+          <div class="control-inline">
+            <span>眼神方向校正微调</span>
+            <div style="display:flex;flex-direction:column;gap:6px;width:215px;">
+              <div style="display:flex;align-items:center;gap:6px;">
+                <span class="small-note" style="width:28px;">上下</span>
+                <input type="range" id="rngSettingsGazeY" min="-100" max="100" step="2" value="0" style="flex:1;accent-color:#60a5fa;" />
+                <span class="small-note" id="valSettingsGazeY" style="width:42px;text-align:right;">0%</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;">
+                <span class="small-note" style="width:28px;">左右</span>
+                <input type="range" id="rngSettingsGazeX" min="-100" max="100" step="2" value="0" style="flex:1;accent-color:#60a5fa;" />
+                <span class="small-note" id="valSettingsGazeX" style="width:42px;text-align:right;">0%</span>
+              </div>
+              <div style="display:flex;gap:6px;">
+                <button class="mini primary" id="btnSettingsCalibCenter" style="flex:1;" title="正视屏幕后点击，把当前人脸位置校准为中心">🎯 当前居中</button>
+                <button class="mini" id="btnSettingsCalibReset" title="恢复默认眼神参数">重置</button>
+                <button class="mini" id="btnOpenCalibFromSettings" title="在画面上打开悬浮微调条">浮窗微调</button>
+              </div>
             </div>
           </div>
           <div class="control-inline">
@@ -1268,6 +1449,7 @@
       triggerGesture() {},
       resetCamera() {},
       setCameraGaze() {},
+      setGazeCalibration() {},
       ensureAudioAnalyser() {},
       stopActiveAudio() {},
       async playAudioBufferBlob() { throw new Error("3d not ready"); },
@@ -1304,11 +1486,12 @@
     async function initAvatar3DEngine() {
       try {
         $("pill3d").textContent = "Three.js 3D: 正在加载引擎...";
-        const mod = await import("/static/avatar3d.js?v=8");
+        const mod = await import("/static/avatar3d.js?v=9");
         avatar3d = new mod.Avatar3DEngine($("stage3dWrap"), (statusText) => {
           $("pill3d").textContent = `Three.js 3D: ${statusText}`;
           if (statusText.includes("就绪")) $("pill3d").className = "pill ok";
         });
+        avatar3d.setGazeCalibration({ offsetX: gazeOffsetX, offsetY: gazeOffsetY });
         if (sharedPlaybackCtx) {
           avatar3d.audioCtx = sharedPlaybackCtx;
           avatar3d.analyser = sharedPlaybackCtx.createAnalyser();
@@ -2615,15 +2798,61 @@
       }
     });
 
-    // --- 手机/桌面摄像头人脸注视追踪（让 3D 虚拟形象眼神与头部看向你） ---
+    // --- 手机/桌面摄像头人脸注视追踪（默认后台纯追踪不渲染摄像头画面 + 眼神校正微调） ---
     let faceTracker = null;
     let camGazeActive = false;
     let camStarting = false;
+    let camPreviewEnabled = localStorage.getItem("avatar_cam_preview") === "1"; // 默认关闭摄像头实时画面渲染
     let camPipCollapsed = false;
     let lastCamEngineLabel = "";
 
+    const clampNum = (v, lo, hi, fallback = 0) => {
+      const n = Number(v);
+      return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : fallback;
+    };
+    let gazeOffsetX = clampNum(localStorage.getItem("avatar_gaze_offset_x"), -1, 1, 0);
+    let gazeOffsetY = clampNum(localStorage.getItem("avatar_gaze_offset_y"), -1, 1, 0);
+    let camCenterU = clampNum(localStorage.getItem("avatar_cam_center_u"), 0.12, 0.88, 0.5);
+    let camCenterV = clampNum(localStorage.getItem("avatar_cam_center_v"), 0.12, 0.88, 0.5);
+
     const savedCamSens = localStorage.getItem("avatar_cam_sens") || "1.05";
     $("selCamSensitivity").value = savedCamSens;
+
+    function formatGazeOffsetLabel(val, posWord, negWord) {
+      const pct = Math.round(val * 100);
+      if (pct === 0) return "居中 0%";
+      return pct > 0 ? `${posWord} +${pct}%` : `${negWord} ${pct}%`;
+    }
+
+    function syncGazeCalibrationUI({ save = false } = {}) {
+      const pctX = Math.round(gazeOffsetX * 100);
+      const pctY = Math.round(gazeOffsetY * 100);
+      $("rngGazeX").value = String(pctX);
+      $("rngGazeY").value = String(pctY);
+      $("rngSettingsGazeX").value = String(pctX);
+      $("rngSettingsGazeY").value = String(pctY);
+      $("valGazeX").textContent = formatGazeOffsetLabel(gazeOffsetX, "偏右", "偏左");
+      $("valGazeY").textContent = formatGazeOffsetLabel(gazeOffsetY, "偏上", "偏下");
+      $("valSettingsGazeX").textContent = `${pctX > 0 ? "+" : ""}${pctX}%`;
+      $("valSettingsGazeY").textContent = `${pctY > 0 ? "+" : ""}${pctY}%`;
+
+      const hasCenterShift = Math.abs(camCenterU - 0.5) > 0.015 || Math.abs(camCenterV - 0.5) > 0.015;
+      const hasOffset = pctX !== 0 || pctY !== 0;
+      $("btnGazeCalib").classList.toggle("cam-active", hasOffset || hasCenterShift || $("gazeCalibPanel").classList.contains("open"));
+      $("calibCenterHint").textContent = hasCenterShift
+        ? `已校准中心 (${Math.round(camCenterU * 100)}%, ${Math.round(camCenterV * 100)}%)`
+        : (camPreviewEnabled ? "已开启画面预览" : "后台追踪不渲染画面");
+
+      avatar3d.setGazeCalibration({ offsetX: gazeOffsetX, offsetY: gazeOffsetY });
+      if (faceTracker) faceTracker.setNeutralCenter(camCenterU, camCenterV);
+
+      if (save) {
+        localStorage.setItem("avatar_gaze_offset_x", String(gazeOffsetX));
+        localStorage.setItem("avatar_gaze_offset_y", String(gazeOffsetY));
+        localStorage.setItem("avatar_cam_center_u", String(camCenterU));
+        localStorage.setItem("avatar_cam_center_v", String(camCenterV));
+      }
+    }
 
     function syncCameraPreviewMirrorUI() {
       const mirrored = $("chkCamMirror").checked;
@@ -2631,10 +2860,19 @@
       if (faceTracker) faceTracker.setMirrorX(mirrored);
     }
 
-    function syncCameraPreviewCollapsedUI() {
+    function syncCameraPreviewUI({ save = false } = {}) {
       const pip = $("camPipWrap");
-      pip.classList.toggle("collapsed", camPipCollapsed);
-      $("chkCamPreview").checked = !camPipCollapsed;
+      pip.classList.toggle("preview-off", !camPreviewEnabled);
+      pip.classList.toggle("collapsed", camPreviewEnabled && camPipCollapsed);
+      $("chkCamPreview").checked = camPreviewEnabled;
+      $("chkCalibPreview").checked = camPreviewEnabled;
+      if (faceTracker) {
+        faceTracker.setRenderOverlay(camPreviewEnabled && !camPipCollapsed);
+      }
+      if (save) {
+        localStorage.setItem("avatar_cam_preview", camPreviewEnabled ? "1" : "0");
+      }
+      syncGazeCalibrationUI({ save: false });
     }
 
     function updateCamButtonsUI(active, locked = false) {
@@ -2667,12 +2905,15 @@
 
     async function ensureFaceTracker() {
       if (faceTracker) return faceTracker;
-      const mod = await import("/static/face_tracker.js?v=1");
+      const mod = await import("/static/face_tracker.js?v=2");
       faceTracker = new mod.FaceGazeTracker({
         videoEl: $("camPreviewVideo"),
         overlayCanvas: $("camOverlayCanvas"),
         facingMode: "user",
         mirrorX: $("chkCamMirror").checked,
+        renderOverlay: camPreviewEnabled && !camPipCollapsed,
+        centerU: camCenterU,
+        centerV: camCenterV,
         sensitivity: parseFloat($("selCamSensitivity").value || "1.05"),
         targetFps: isMobileDevice ? 16 : 20,
         onGaze: (gaze) => {
@@ -2749,9 +2990,11 @@
         // 前置摄像头默认开启水平镜像，后置摄像头默认关闭镜像
         $("chkCamMirror").checked = res.facingMode !== "environment";
         syncCameraPreviewMirrorUI();
-        syncCameraPreviewCollapsedUI();
+        syncCameraPreviewUI({ save: false });
         updateCamButtonsUI(true, false);
-        $("interimText").textContent = "📷 摄像头已开启！画面仅在手机本地推理不上传，移动头部即可看到 3D 形象实时看向你。";
+        $("interimText").textContent = camPreviewEnabled
+          ? "📷 摄像头追踪已开启！如需调整视线中心，点击右上角「🎯 校准」。"
+          : "📷 摄像头后台注视追踪已开启（已关闭实时画面渲染），点击右上角「🎯 校准」可随时微调眼神方向。";
       } catch (err) {
         camGazeActive = false;
         updateCamButtonsUI(false, false);
@@ -2783,8 +3026,68 @@
       }
     }
 
+    function toggleGazeCalibPanel(forceOpen = null) {
+      const panel = $("gazeCalibPanel");
+      const open = forceOpen === null ? !panel.classList.contains("open") : !!forceOpen;
+      panel.classList.toggle("open", open);
+      syncGazeCalibrationUI({ save: false });
+    }
+
+    function calibrateCurrentFaceCenter() {
+      if (!camGazeActive || !faceTracker) {
+        $("interimText").textContent = "🎯 请先点击「📷 看向我」开启摄像头，或直接拖动上下/左右微调滑块！";
+        return;
+      }
+      const res = faceTracker.calibrateCenter();
+      if (!res.ok) {
+        $("interimText").textContent = "🎯 暂未锁定到人脸，请正对屏幕稍候 1 秒后再点「以当前位置居中」。";
+        return;
+      }
+      camCenterU = res.centerU;
+      camCenterV = res.centerV;
+      syncGazeCalibrationUI({ save: true });
+      $("interimText").textContent = "🎯 已将当前位置校准为注视中心！如仍觉偏高/偏低，可继续用滑块微调。";
+    }
+
+    function resetGazeCalibration() {
+      gazeOffsetX = 0;
+      gazeOffsetY = 0;
+      camCenterU = 0.5;
+      camCenterV = 0.5;
+      if (faceTracker) faceTracker.resetCalibration();
+      syncGazeCalibrationUI({ save: true });
+      $("interimText").textContent = "↺ 已恢复默认眼神方向与中心基准。";
+    }
+
+    function setGazeOffsetPct(axis, pct) {
+      const val = clampNum(Number(pct) / 100, -1, 1, 0);
+      if (axis === "x") gazeOffsetX = val;
+      else gazeOffsetY = val;
+      syncGazeCalibrationUI({ save: true });
+    }
+
     $("btnStageCam").addEventListener("click", toggleCameraGaze);
     $("btnCamGaze").addEventListener("click", toggleCameraGaze);
+    $("btnGazeCalib").addEventListener("click", () => toggleGazeCalibPanel());
+    $("btnCloseCalib").addEventListener("click", () => toggleGazeCalibPanel(false));
+    $("btnOpenCalibFromSettings").addEventListener("click", () => {
+      toggleGazeCalibPanel(true);
+      $("videoStage").scrollIntoView({ behavior: "smooth", block: "nearest" });
+    });
+    $("btnCalibCenter").addEventListener("click", calibrateCurrentFaceCenter);
+    $("btnSettingsCalibCenter").addEventListener("click", calibrateCurrentFaceCenter);
+    $("btnCalibReset").addEventListener("click", resetGazeCalibration);
+    $("btnSettingsCalibReset").addEventListener("click", resetGazeCalibration);
+
+    $("rngGazeY").addEventListener("input", (e) => setGazeOffsetPct("y", e.target.value));
+    $("rngSettingsGazeY").addEventListener("input", (e) => setGazeOffsetPct("y", e.target.value));
+    $("rngGazeX").addEventListener("input", (e) => setGazeOffsetPct("x", e.target.value));
+    $("rngSettingsGazeX").addEventListener("input", (e) => setGazeOffsetPct("x", e.target.value));
+    $("btnGazeYUp").addEventListener("click", () => setGazeOffsetPct("y", Math.round(gazeOffsetY * 100) + 6));
+    $("btnGazeYDown").addEventListener("click", () => setGazeOffsetPct("y", Math.round(gazeOffsetY * 100) - 6));
+    $("btnGazeXRight").addEventListener("click", () => setGazeOffsetPct("x", Math.round(gazeOffsetX * 100) + 6));
+    $("btnGazeXLeft").addEventListener("click", () => setGazeOffsetPct("x", Math.round(gazeOffsetX * 100) - 6));
+
     $("btnPipClose").addEventListener("click", (e) => { e.stopPropagation(); stopCameraGaze(); });
     $("btnPipFlip").addEventListener("click", (e) => { e.stopPropagation(); switchCameraFacing(); });
     $("btnFlipCamera").addEventListener("click", () => {
@@ -2793,17 +3096,24 @@
     });
     $("btnPipCollapse").addEventListener("click", (e) => {
       e.stopPropagation();
-      camPipCollapsed = true;
-      syncCameraPreviewCollapsedUI();
+      camPreviewEnabled = false;
+      camPipCollapsed = false;
+      syncCameraPreviewUI({ save: true });
     });
     $("btnPipExpand").addEventListener("click", (e) => {
       e.stopPropagation();
       camPipCollapsed = false;
-      syncCameraPreviewCollapsedUI();
+      syncCameraPreviewUI({ save: false });
     });
     $("chkCamPreview").addEventListener("change", () => {
-      camPipCollapsed = !$("chkCamPreview").checked;
-      syncCameraPreviewCollapsedUI();
+      camPreviewEnabled = $("chkCamPreview").checked;
+      camPipCollapsed = false;
+      syncCameraPreviewUI({ save: true });
+    });
+    $("chkCalibPreview").addEventListener("change", () => {
+      camPreviewEnabled = $("chkCalibPreview").checked;
+      camPipCollapsed = false;
+      syncCameraPreviewUI({ save: true });
     });
     $("chkCamMirror").addEventListener("change", syncCameraPreviewMirrorUI);
     $("selCamSensitivity").addEventListener("change", () => {
@@ -2814,6 +3124,9 @@
     window.addEventListener("pagehide", () => {
       if (camGazeActive) stopCameraGaze();
     });
+
+    syncCameraPreviewUI({ save: false });
+    syncGazeCalibrationUI({ save: false });
 
     updateModeUI();
     updateAccessBanner();

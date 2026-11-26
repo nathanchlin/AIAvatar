@@ -30,6 +30,9 @@ export class FaceGazeTracker {
     this.mirrorX = options.mirrorX !== undefined ? !!options.mirrorX : true;
     this.sensitivity = Number(options.sensitivity || 1.0); // 0.65 ~ 1.5
     this.targetFps = Number(options.targetFps || 18);
+    this.renderOverlay = options.renderOverlay !== undefined ? !!options.renderOverlay : false;
+    this.centerU = clamp(options.centerU !== undefined ? Number(options.centerU) : 0.5, 0.12, 0.88);
+    this.centerV = clamp(options.centerV !== undefined ? Number(options.centerV) : 0.5, 0.12, 0.88);
 
     this.active = false;
     this.pausedByVisibility = false;
@@ -59,6 +62,7 @@ export class FaceGazeTracker {
     this.hasFace = false;
     this.lastBox = null; // 归一化 [0..1] 供预览框绘制
     this.lastEyes = null;
+    this.lastRawUV = null;
 
     this._onVisibilityChange = () => {
       if (!this.active) return;
@@ -82,6 +86,44 @@ export class FaceGazeTracker {
 
   setMirrorX(enabled) {
     this.mirrorX = !!enabled;
+  }
+
+  setRenderOverlay(enabled) {
+    this.renderOverlay = !!enabled;
+    if (!this.renderOverlay) {
+      this._clearOverlay();
+    }
+  }
+
+  setNeutralCenter(u = 0.5, v = 0.5) {
+    this.centerU = clamp(Number.isFinite(Number(u)) ? Number(u) : 0.5, 0.12, 0.88);
+    this.centerV = clamp(Number.isFinite(Number(v)) ? Number(v) : 0.5, 0.12, 0.88);
+  }
+
+  calibrateCenter() {
+    if (!this.active || !this.hasFace || !this.lastRawUV) {
+      return { ok: false, centerU: this.centerU, centerV: this.centerV };
+    }
+    this.centerU = clamp(this.lastRawUV.u, 0.12, 0.88);
+    this.centerV = clamp(this.lastRawUV.v, 0.12, 0.88);
+    this.smooth.x = 0;
+    this.smooth.y = 0;
+    this.onGaze({
+      active: true,
+      detected: true,
+      x: 0,
+      y: 0,
+      proximity: this.smooth.proximity,
+      roll: this.smooth.roll,
+      engine: this.engineName,
+    });
+    return { ok: true, centerU: this.centerU, centerV: this.centerV };
+  }
+
+  resetCalibration() {
+    this.centerU = 0.5;
+    this.centerV = 0.5;
+    return { centerU: this.centerU, centerV: this.centerV };
   }
 
   async _ensureMediaPipeDetector() {
@@ -288,6 +330,7 @@ export class FaceGazeTracker {
     this.hasFace = false;
     this.lastBox = null;
     this.lastEyes = null;
+    this.lastRawUV = null;
     this._stopStreamOnly();
     this._clearOverlay();
     this.onGaze({
@@ -527,14 +570,14 @@ export class FaceGazeTracker {
     this.hasFace = true;
     this.lastBox = det.box;
     this.lastEyes = det.eyes;
+    this.lastRawUV = { u: det.u, v: det.v };
 
-    // 坐标映射：
-    // 前置摄像头 (mirrorX=true)：用户向右移动 -> 原始图像中脸偏左 (u < 0.5) -> rawX = (0.5 - u) * 2 > 0 -> 3D 角色向屏幕右侧 (+X) 注视！
-    // 后置摄像头 (mirrorX=false)：rawX = (u - 0.5) * 2
-    const rawX = this.mirrorX ? (0.5 - det.u) * 2.0 : (det.u - 0.5) * 2.0;
-    // 图像上方 v < 0.5 -> rawY > 0 -> 3D 角色向上 (+Y) 注视；加入微弱前置镜头顶部偏移补偿 (-0.06)
-    const camOffsetComp = this.facingMode === "user" ? -0.05 : 0.0;
-    const rawY = (0.5 - det.v) * 2.0 + camOffsetComp;
+    // 坐标映射（支持自定义中性零点 centerU / centerV 校准）：
+    // 前置摄像头 (mirrorX=true)：用户向右移动 -> 原始图像中脸偏左 (u < centerU) -> rawX > 0 -> 3D 角色向屏幕右侧 (+X) 注视
+    // 后置摄像头 (mirrorX=false)：rawX = (u - centerU) * 2
+    const rawX = this.mirrorX ? (this.centerU - det.u) * 2.0 : (det.u - this.centerU) * 2.0;
+    // 图像上方 v < centerV -> rawY > 0 -> 3D 角色向上 (+Y) 注视（移除原有向下写死偏移，由眼平基准与微调选项精确控制）
+    const rawY = (this.centerV - det.v) * 2.0;
 
     const targetX = clamp(rawX * this.sensitivity, -1.0, 1.0);
     const targetY = clamp(rawY * this.sensitivity, -1.0, 1.0);
@@ -551,7 +594,9 @@ export class FaceGazeTracker {
     this.smooth.proximity += (det.proximity - this.smooth.proximity) * 0.15;
     this.smooth.roll += (targetRoll - this.smooth.roll) * 0.22;
 
-    this._drawOverlay(true);
+    if (this.renderOverlay) {
+      this._drawOverlay(true);
+    }
     this.onGaze({
       active: true,
       detected: true,
@@ -571,11 +616,14 @@ export class FaceGazeTracker {
     if (!detected) {
       this.lastBox = null;
       this.lastEyes = null;
+      this.lastRawUV = null;
       this.smooth.x *= 0.88;
       this.smooth.y *= 0.88;
       this.smooth.roll *= 0.85;
     }
-    this._drawOverlay(detected);
+    if (this.renderOverlay) {
+      this._drawOverlay(detected);
+    }
     this.onGaze({
       active: true,
       detected,
@@ -594,6 +642,7 @@ export class FaceGazeTracker {
   }
 
   _drawOverlay(detected) {
+    if (!this.renderOverlay) return;
     const canvas = this.overlayCanvas;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
