@@ -489,6 +489,10 @@ export class Avatar3DEngine {
   }
 
   stopActiveAudio() {
+    if (this._activeAudioTimer) {
+      clearTimeout(this._activeAudioTimer);
+      this._activeAudioTimer = null;
+    }
     if (this._activeBufferSource) {
       try {
         this._activeBufferSource.onended = null;
@@ -497,16 +501,30 @@ export class Avatar3DEngine {
       } catch (_) {}
       this._activeBufferSource = null;
     }
+    const resolvePrev = this._activeAudioDone;
+    this._activeAudioDone = null;
     this.activeAudio = null;
     this.activeTimeline = null;
+    if (typeof resolvePrev === "function") {
+      try { resolvePrev(); } catch (_) {}
+    }
   }
 
   /** 使用已解锁的 Web Audio API 解码并播放 TTS 音频（彻底绕过手机端 new Audio().play() 自动播放限制） */
   async playAudioBufferBlob(blob, timeline = null, { onStart = null, isCancelled = null } = {}) {
     const ctx = this.ensureAudioAnalyser();
     if (!ctx) throw new Error("AudioContext 不可用");
-    if (ctx.state === "suspended") {
-      try { await ctx.resume(); } catch (_) {}
+    if (ctx.state === "suspended" || ctx.state === "interrupted") {
+      try {
+        await Promise.race([
+          ctx.resume(),
+          new Promise((r) => setTimeout(r, 650)),
+        ]);
+      } catch (_) {}
+    }
+    if (isCancelled && isCancelled()) return;
+    if (ctx.state !== "running") {
+      throw new Error(`AudioContext 未激活(${ctx.state})`);
     }
     const rawBuf = await blob.arrayBuffer();
     if (isCancelled && isCancelled()) return;
@@ -534,6 +552,13 @@ export class Avatar3DEngine {
       const done = () => {
         if (finished) return;
         finished = true;
+        if (this._activeAudioTimer) {
+          clearTimeout(this._activeAudioTimer);
+          this._activeAudioTimer = null;
+        }
+        if (this._activeAudioDone === done) {
+          this._activeAudioDone = null;
+        }
         if (this._activeBufferSource === src) {
           this._activeBufferSource = null;
           this.activeAudio = null;
@@ -542,7 +567,11 @@ export class Avatar3DEngine {
         try { src.disconnect(); } catch (_) {}
         resolve();
       };
+      this._activeAudioDone = done;
       src.onended = done;
+      // 安全看门狗：防止移动端切后台/音频中断导致 onended 永不触发、界面永久卡在播报或思考状态
+      const maxWaitMs = Math.max(4500, Math.ceil((decoded.duration || 1) * 1000) + 3500);
+      this._activeAudioTimer = setTimeout(done, maxWaitMs);
       try {
         src.start(0);
         if (onStart) onStart();

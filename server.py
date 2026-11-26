@@ -17,6 +17,7 @@ import base64
 import io
 import json
 import math
+import mimetypes
 import os
 import random
 import re
@@ -114,9 +115,9 @@ KOKORO_VOICE_MAP = {
 }
 
 class SmartGZipMiddleware(GZipMiddleware):
-    """对 JS/HTML/JSON/CSS 开启 GZip 压缩加速公网/花生壳加载，跳过 SSE 与已压缩二进制文件（保留精确 Content-Length 供进度条使用）。"""
+    """对 JS/HTML/JSON/CSS 开启 GZip 压缩加速公网/花生壳加载，跳过 SSE 与已压缩/流式编译二进制文件（保留精确 Content-Length 供进度条与 WASM 使用）。"""
 
-    _SKIP_EXTS = (".vrm", ".mp4", ".png", ".jpg", ".jpeg", ".webp", ".mp3", ".wav", ".ogg", ".zip")
+    _SKIP_EXTS = (".vrm", ".mp4", ".png", ".jpg", ".jpeg", ".webp", ".mp3", ".wav", ".ogg", ".zip", ".wasm", ".tflite")
 
     async def __call__(self, scope, receive, send):
         if scope.get("type") == "http":
@@ -165,6 +166,9 @@ _whisper_lock = threading.Lock()
 _lipsync_lock = asyncio.Lock()
 _lipsync_busy = False
 _edge_tts_disabled_until = 0.0
+_edge_consecutive_failures = 0
+_edge_preferred_route: str | None = None  # "direct" | "proxy" | None
+_edge_tts_sem_map: dict[int, asyncio.Semaphore] = {}
 _docs_lock = threading.Lock()
 _docs_store: list[dict[str, Any]] = []
 _https_runtime: dict[str, Any] = {"enabled": False, "port": int(os.environ.get("HTTPS_PORT", "8766"))}
@@ -239,27 +243,54 @@ def _to_pinyin_set(text: str) -> list[str]:
     return [item[0].lower() for item in pinyin("".join(chars), style=Style.NORMAL, strict=False) if item and item[0]]
 
 
-def _is_pinyin_self_echo(asr_text: str, recent_avatar_texts: list[str]) -> bool:
-    """用拼音音节比对识别并过滤失真的扬声器同音自回声（如“战斗”被回声听成“占斗”）。"""
+def _is_pinyin_self_echo(
+    asr_text: str,
+    recent_avatar_texts: list[str],
+    during_speaking: bool = True,
+) -> bool:
+    """用连续拼音二元组(bigram)与子串比对识别扬声器自回声，避免误杀用户正常连续接话。"""
     clean = re.sub(r"[^\u4e00-\u9fffa-zA-Z0-9]", "", asr_text or "")
     if not clean:
         return True
     # 明确打断词或唤醒词一律放行
     if re.match(r"^(停|停一下|等一下|等等|别说了|打住|先停|暂停|小汐|小希|听我说|问一下|换一个|不对)", clean):
         return False
-    if len(clean) <= 2:
+    # 仅在角色正播报期间忽略单字杂音；播报结束后放行所有 2 字及以上的正常回复（如“好的”“继续”“谢谢”）
+    if during_speaking and len(clean) <= 1:
         return True
     if not recent_avatar_texts:
         return False
 
+    # 仅比对最近 2 句（正在说/刚说完的句子），防止历史词库过大造成普通中文误匹配
+    recent_slice = recent_avatar_texts[-2:]
+    pool_clean = "".join(re.sub(r"[^\u4e00-\u9fffa-zA-Z0-9]", "", t) for t in recent_slice)
+    if not pool_clean:
+        return False
+
+    # 3 字及以上完全连续子串命中，确认为扬声器回声
+    if len(clean) >= 3 and clean in pool_clean:
+        return True
+
     cand_py = _to_pinyin_set(clean)
     if not cand_py:
         return False
-    pool_py = set(_to_pinyin_set(" ".join(recent_avatar_texts[-8:])))
-    if not pool_py:
+    pool_py = _to_pinyin_set(pool_clean)
+    if len(pool_py) < 2:
         return False
-    hits = sum(1 for s in cand_py if s in pool_py)
-    return (hits / len(cand_py)) >= 0.42
+
+    pool_bigrams = {(pool_py[i], pool_py[i + 1]) for i in range(len(pool_py) - 1)}
+    if len(cand_py) == 1:
+        return during_speaking and (cand_py[0] in pool_py)
+    if len(cand_py) == 2:
+        # 2 字短句：播报期间命中连续二元组才判回声；播报结束后仅在完全匹配连续子串时判回声
+        if during_speaking:
+            return (cand_py[0], cand_py[1]) in pool_bigrams
+        return clean in pool_clean
+
+    cand_bigrams = [(cand_py[i], cand_py[i + 1]) for i in range(len(cand_py) - 1)]
+    hits = sum(1 for bg in cand_bigrams if bg in pool_bigrams)
+    threshold = 0.45 if during_speaking else 0.62
+    return (hits / len(cand_bigrams)) >= threshold
 
 
 def get_sensevoice_recognizer():
@@ -628,13 +659,32 @@ def detect_emotion_and_gesture(text: str, user_text: str = "", seg_idx: int = 0)
     return ("happy" if seg_idx % 2 == 0 else "relaxed"), ("explain_both" if seg_idx % 2 == 1 else "explain_one")
 
 
+def _get_edge_semaphore() -> asyncio.Semaphore:
+    loop_id = id(asyncio.get_running_loop())
+    sem = _edge_tts_sem_map.get(loop_id)
+    if sem is None:
+        sem = asyncio.Semaphore(2)
+        _edge_tts_sem_map[loop_id] = sem
+    return sem
+
+
 def _kokoro_synthesize_wav(text: str, voice: str = DEFAULT_VOICE) -> bytes:
     tts = get_kokoro_tts()
     sid = KOKORO_VOICE_MAP.get(voice, 50)
     if sid >= tts.num_speakers:
         sid = min(50, max(0, tts.num_speakers - 1))
-    audio = tts.generate(text, sid=sid, speed=1.06)
-    samples = np.clip(np.array(audio.samples, dtype=np.float32), -1.0, 1.0)
+    audio = tts.generate(text, sid=sid, speed=1.0)
+    samples = np.array(audio.samples, dtype=np.float32)
+    # 响度归一化 + 柔和防削波，确保万一离线降级到 Kokoro 时音量与清晰度稳定
+    if len(samples) > 0:
+        rms = float(np.sqrt(np.mean(samples * samples)))
+        if rms > 1e-4:
+            gain = min(2.2, 0.14 / rms)
+            samples = samples * gain
+        peak = float(np.max(np.abs(samples)))
+        if peak > 0.92:
+            samples = samples * (0.92 / peak)
+    samples = np.clip(samples, -1.0, 1.0)
     pcm16 = (samples * 32767.0).astype(np.int16)
     buf = io.BytesIO()
     with wave.open(buf, "wb") as wf:
@@ -682,7 +732,7 @@ async def synthesize_tts_with_marks(
     custom_api_key: str = "",
 ) -> tuple[bytes, str, str, list[dict[str, Any]]]:
     """返回 (audio_bytes, media_type, engine_used, word_marks)。"""
-    global _edge_tts_disabled_until
+    global _edge_tts_disabled_until, _edge_consecutive_failures, _edge_preferred_route
     text = sanitize_for_tts(text)
     if not text:
         raise ValueError("empty text")
@@ -702,39 +752,72 @@ async def synthesize_tts_with_marks(
             r.raise_for_status()
             return r.content, r.headers.get("content-type", "audio/mpeg"), "custom", []
 
-    if engine in ("auto", "edge") and time.time() >= _edge_tts_disabled_until:
+    # engine == "edge" 时始终锁定高质量 Edge 神经音色，绝不因冷却跳过；
+    # engine == "auto" 时也优先全力保障 Edge 神经音色，仅连续多次失败后短暂冷却 10s 避免卡顿。
+    can_try_edge = (engine == "edge") or (engine == "auto" and time.time() >= _edge_tts_disabled_until)
+    if can_try_edge:
         proxy = _windows_http_proxy()
-        for attempt_proxy in ([proxy, None] if proxy else [None]):
-            try:
-                async def _fetch_edge() -> tuple[bytes, list[dict[str, Any]]]:
-                    comm = edge_tts.Communicate(
-                        text=text,
-                        voice=voice or DEFAULT_VOICE,
-                        rate="+6%",
-                        pitch="+0Hz",
-                        boundary="WordBoundary",
-                        proxy=attempt_proxy,
-                    )
-                    chunks: list[bytes] = []
-                    marks: list[dict[str, Any]] = []
-                    async for chunk in comm.stream():
-                        if chunk["type"] == "audio":
-                            chunks.append(chunk["data"])
-                        elif chunk["type"] == "WordBoundary":
-                            marks.append(chunk)
-                    return b"".join(chunks), marks
+        if proxy:
+            if _edge_preferred_route == "direct":
+                attempts = [("direct", None), ("proxy", proxy), ("direct", None)]
+            else:
+                attempts = [("proxy", proxy), ("direct", None), ("proxy", proxy)]
+        else:
+            attempts = [("direct", None), ("direct", None), ("direct", None)]
 
-                audio_bytes, marks = await asyncio.wait_for(_fetch_edge(), timeout=6.5)
-                if audio_bytes:
-                    return audio_bytes, "audio/mpeg", "edge-neural", marks
-            except Exception:
-                continue
-        _edge_tts_disabled_until = time.time() + 45
+        last_err: Exception | None = None
+        sem = _get_edge_semaphore()
+        async with sem:
+            for idx, (route_name, attempt_proxy) in enumerate(attempts):
+                if idx > 0:
+                    await asyncio.sleep(0.28 * idx)
+                try:
+                    async def _fetch_edge() -> tuple[bytes, list[dict[str, Any]]]:
+                        comm = edge_tts.Communicate(
+                            text=text,
+                            voice=voice or DEFAULT_VOICE,
+                            rate="+2%",
+                            pitch="+0Hz",
+                            boundary="WordBoundary",
+                            proxy=attempt_proxy,
+                            connect_timeout=8,
+                            receive_timeout=15,
+                        )
+                        chunks: list[bytes] = []
+                        marks: list[dict[str, Any]] = []
+                        async for chunk in comm.stream():
+                            if chunk["type"] == "audio":
+                                chunks.append(chunk["data"])
+                            elif chunk["type"] == "WordBoundary":
+                                marks.append(chunk)
+                        return b"".join(chunks), marks
+
+                    # 长句给更充裕的超时，避免因 6.5s 过短误判超时而突然降级音质
+                    per_timeout = 12.0 if len(text) <= 60 else 16.0
+                    audio_bytes, marks = await asyncio.wait_for(_fetch_edge(), timeout=per_timeout)
+                    if audio_bytes and len(audio_bytes) >= 256:
+                        _edge_consecutive_failures = 0
+                        _edge_tts_disabled_until = 0.0
+                        _edge_preferred_route = route_name
+                        return audio_bytes, "audio/mpeg", "edge-neural", marks
+                except Exception as exc:
+                    last_err = exc
+                    continue
+
+        _edge_consecutive_failures += 1
+        print(
+            f"[TTS] Edge TTS failed (consecutive={_edge_consecutive_failures}): {type(last_err).__name__}: {str(last_err)[:120]}",
+            flush=True,
+        )
+        # 只有连续 >= 4 次完整重试均失败才短暂冷却 10s，杜绝单次抖动导致 45s 降级低质语音
+        if _edge_consecutive_failures >= 4:
+            _edge_tts_disabled_until = time.time() + 10.0
         if engine == "edge":
-            raise RuntimeError("Edge TTS 暂时不可用，请切换为自动或本地 Kokoro 神经音色")
+            raise RuntimeError(f"Edge 高质量神经语音请求失败（已重试 3 次）: {last_err}")
 
     if engine in ("auto", "kokoro") and _has_kokoro():
         try:
+            print(f"[TTS] using kokoro-local (engine={engine})", flush=True)
             wav_bytes = await asyncio.to_thread(_kokoro_synthesize_wav, text, voice)
             return wav_bytes, "audio/wav", "kokoro-local", []
         except Exception as exc:
@@ -742,6 +825,7 @@ async def synthesize_tts_with_marks(
                 raise RuntimeError(f"Kokoro 本地合成失败: {exc}") from exc
 
     if sys.platform == "win32":
+        print(f"[TTS] using windows-sapi fallback (engine={engine})", flush=True)
         wav_bytes = await asyncio.to_thread(_sapi_synthesize_wav_utf8, text)
         return wav_bytes, "audio/wav", "windows-sapi", []
     raise RuntimeError("Linux 环境下 Edge TTS 与本地 Kokoro 均不可用，请检查网络或执行 python setup_voice_models.py 安装 Kokoro 本地离线音色")
@@ -1113,10 +1197,12 @@ async def ws_voice(websocket: WebSocket) -> None:
         await websocket.close()
         return
 
-    vad = create_silero_vad(threshold=0.48, min_silence=1.20)
+    vad = create_silero_vad(threshold=0.45, min_silence=1.20)
     pcm_buf = np.zeros(0, dtype=np.float32)
     in_speech = False
     avatar_speaking = False
+    allow_barge_in = True
+    speech_started_during_echo = False
     last_speak_end = 0.0
     recent_avatar_texts: list[str] = []
     await websocket.send_json({"type": "ready", "vad": "Silero VAD", "asr": "SenseVoiceSmall" if _has_sensevoice() else "Whisper"})
@@ -1130,31 +1216,45 @@ async def ws_voice(websocket: WebSocket) -> None:
                 try:
                     cmd = json.loads(msg["text"])
                     ctype = cmd.get("type")
-                    if ctype == "reset":
+                    if ctype == "ping":
+                        await websocket.send_json({"type": "pong", "ts": cmd.get("ts")})
+                    elif ctype == "reset":
                         vad.reset()
                         pcm_buf = np.zeros(0, dtype=np.float32)
                         in_speech = False
+                        speech_started_during_echo = False
                     elif ctype == "config":
                         ms = float(cmd.get("min_silence", 1.20))
                         ms = min(2.5, max(0.6, ms))
                         is_mobile = bool(cmd.get("is_mobile", False))
+                        if "allow_barge_in" in cmd:
+                            allow_barge_in = bool(cmd.get("allow_barge_in", True))
                         vad_th = 0.34 if is_mobile else 0.45
                         vad = create_silero_vad(threshold=vad_th, min_silence=ms)
                         pcm_buf = np.zeros(0, dtype=np.float32)
                         in_speech = False
-                        print(f"[VoiceWS] config min_silence={ms}s threshold={vad_th} mobile={is_mobile}", flush=True)
+                        speech_started_during_echo = False
+                        print(f"[VoiceWS] config min_silence={ms}s threshold={vad_th} mobile={is_mobile} barge_in={allow_barge_in}", flush=True)
                     elif ctype == "avatar_text":
                         txt = str(cmd.get("text", "")).strip()
                         if txt:
                             recent_avatar_texts.append(txt)
-                            recent_avatar_texts = recent_avatar_texts[-10:]
+                            recent_avatar_texts = recent_avatar_texts[-6:]
                     elif ctype == "speaking_state":
                         new_state = bool(cmd.get("speaking", False))
                         if avatar_speaking and not new_state:
                             last_speak_end = time.time()
-                            if not in_speech:
+                            # 未开启插话或当前不在人声段时，立刻清空播报期间可能残余的 VAD 缓冲，确保下一轮立即可说
+                            if (not allow_barge_in) or (not in_speech):
                                 vad.reset()
                                 pcm_buf = np.zeros(0, dtype=np.float32)
+                                in_speech = False
+                                speech_started_during_echo = False
+                        elif (not avatar_speaking) and new_state and (not allow_barge_in):
+                            vad.reset()
+                            pcm_buf = np.zeros(0, dtype=np.float32)
+                            in_speech = False
+                            speech_started_during_echo = False
                         avatar_speaking = new_state
                 except Exception:
                     pass
@@ -1174,6 +1274,7 @@ async def ws_voice(websocket: WebSocket) -> None:
                 speaking_now = vad.is_speech_detected()
                 if speaking_now and not in_speech:
                     in_speech = True
+                    speech_started_during_echo = avatar_speaking or (time.time() - last_speak_end < 0.55)
                     await websocket.send_json({"type": "vad_start", "during_speaking": avatar_speaking})
                 elif not speaking_now and in_speech:
                     in_speech = False
@@ -1182,15 +1283,21 @@ async def ws_voice(websocket: WebSocket) -> None:
                 while not vad.empty():
                     seg = np.array(vad.front.samples, dtype=np.float32)
                     vad.pop()
-                    in_echo_win = avatar_speaking or (time.time() - last_speak_end < 1.8)
+                    now_ts = time.time()
+                    # 只有“播报中”或“起声落在播报尾音 0.55s 内”的语音才走自回声检查；
+                    # 用户在角色说完 >0.55s 后正常开口的连续对话 100% 放行，绝不误杀！
+                    in_echo_win = avatar_speaking or speech_started_during_echo or (now_ts - last_speak_end < 0.65)
+                    speech_started_during_echo = False
                     if in_echo_win:
                         seg_rms = float(np.sqrt(np.mean(seg * seg))) if len(seg) else 0.0
-                        if len(seg) < 4800 or seg_rms < 0.014:
+                        if avatar_speaking and (len(seg) < 4000 or seg_rms < 0.012):
                             continue
                     text, engine, ms = await asyncio.to_thread(transcribe_float32_16k, seg)
                     if text:
-                        if in_echo_win and _is_pinyin_self_echo(text, recent_avatar_texts):
-                            print(f"[VoiceWS] filtered self-echo: {text[:40]}", flush=True)
+                        if in_echo_win and _is_pinyin_self_echo(text, recent_avatar_texts, during_speaking=avatar_speaking):
+                            print(f"[VoiceWS] filtered self-echo (speaking={avatar_speaking}): {text[:40]}", flush=True)
+                            if not avatar_speaking:
+                                await websocket.send_json({"type": "vad_silence"})
                             continue
                         print(f"[VoiceWS] ASR ({engine} {ms}ms): {text[:60]}", flush=True)
                         await websocket.send_json({
@@ -1429,9 +1536,44 @@ def web_search_realtime(query: str, max_results: int = 4) -> list[dict[str, str]
     return []
 
 
+def _resolve_llm_target(req_url: str, req_model: str) -> tuple[str, str, bool]:
+    llm_url = (req_url or DEFAULT_LLM_URL).strip()
+    llm_model = (req_model or DEFAULT_LLM_MODEL).strip()
+    if llm_url in (
+        "http://127.0.0.1:8080/v1/chat/completions",
+        "http://localhost:8080/v1/chat/completions",
+    ) and DEFAULT_LLM_URL != llm_url:
+        llm_url = DEFAULT_LLM_URL
+        if llm_model in ("", "local-model"):
+            llm_model = DEFAULT_LLM_MODEL
+    if llm_url == DEFAULT_LLM_URL and llm_model in ("", "local-model"):
+        llm_model = DEFAULT_LLM_MODEL
+    is_local = "127.0.0.1" in llm_url or "localhost" in llm_url
+    return llm_url, (llm_model or DEFAULT_LLM_MODEL), is_local
+
+
+def _should_disable_reasoning(llm_url: str, model_name: str, is_local: bool) -> bool:
+    ml = (model_name or "").lower()
+    if is_local or ":11434" in llm_url:
+        return True
+    return any(k in ml for k in ("gemma-4", "gemma4", "qwen3", "qwq"))
+
+
+def _extract_fallback_from_reasoning(reasoning_text: str) -> str:
+    txt = re.sub(r"\s+", " ", (reasoning_text or "")).strip()
+    if not txt:
+        return ""
+    # 优先取思考末尾较完整的中文总结句，避免直接返回空回复
+    parts = [p.strip() for p in re.split(r"[。！？!?\n]+", txt) if len(p.strip()) >= 6]
+    if parts:
+        return "。".join(parts[-2:]) + "。"
+    return txt[-120:]
+
+
 def _prepare_messages(req: ChatRequest, web_results: list[dict[str, str]] | None = None) -> tuple[list[dict[str, str]], list[str]]:
-    now_str = time.strftime("%Y年%m月%d日 %H:%M")
-    system_text = (req.system_prompt or DEFAULT_SYSTEM_PROMPT) + f"\n当前本机时间：{now_str}。"
+    # 仅在静态 system prompt 末尾放“日期”（按天不变），避免分钟级时间戳导致大文档 KV Cache 每分钟全部失效
+    today_str = time.strftime("%Y年%m月%d日")
+    system_text = req.system_prompt or DEFAULT_SYSTEM_PROMPT
     used_docs: list[str] = []
     # 当已触发实时联网检索且用户未提及本地资料时，跳过本地资料库注入，避免无关文档稀释上下文和拖慢推理
     mentions_docs = bool(re.search(r"资料|文档|文件|报告|上面|这段|大纲|里面|结合", req.text))
@@ -1442,11 +1584,13 @@ def _prepare_messages(req: ChatRequest, web_results: list[dict[str, str]] | None
                 "\n\n以下是用户已上传并勾选的参考资料，请结合这些资料准确回答或讨论：\n"
                 + docs_context
             )
+    system_text += f"\n\n当前日期：{today_str}。"
     if web_results:
         lines = []
         for idx, item in enumerate(web_results, 1):
             lines.append(f"{idx}. {item['title']}：{item['snippet']}")
         system_text += (
+            f"\n当前时间：{time.strftime('%H:%M')}。"
             "\n\n以下是刚刚联网检索到的实时信息，请严格基于这些检索摘要用自然简洁的中文口语回答用户；"
             "如果摘要中未给出具体数值，请不要编造，直接概括摘要要点并提示用户可点击下方来源链接查看详情（严禁念出网址或 Markdown 符号）：\n"
             + "\n".join(lines)
@@ -1457,7 +1601,10 @@ def _prepare_messages(req: ChatRequest, web_results: list[dict[str, str]] | None
         content = item.get("content", "")
         if role in ("user", "assistant") and content:
             messages.append({"role": role, "content": content})
-    messages.append({"role": "user", "content": req.text.strip()})
+    user_content = req.text.strip()
+    if (not web_results) and re.search(r"几点|现在时间|当前时间|几时|几分", user_content):
+        user_content = f"（当前本机时间：{time.strftime('%Y年%m月%d日 %H:%M')}）\n{user_content}"
+    messages.append({"role": "user", "content": user_content})
     return messages, used_docs
 
 
@@ -1472,13 +1619,7 @@ async def api_chat_stream(req: ChatRequest) -> StreamingResponse:
         has_active_docs = any(d.get("enabled", True) and d.get("content") for d in _docs_store)
     need_web = should_trigger_web_search(user_msg, req.web_search, has_active_docs)
 
-    llm_url = (req.llm_url or DEFAULT_LLM_URL).strip()
-    llm_model = (req.llm_model or DEFAULT_LLM_MODEL).strip()
-    if llm_url == "http://127.0.0.1:8080/v1/chat/completions" and DEFAULT_LLM_URL != llm_url:
-        llm_url = DEFAULT_LLM_URL
-        if llm_model in ("", "local-model"):
-            llm_model = DEFAULT_LLM_MODEL
-    is_local = "127.0.0.1" in llm_url or "localhost" in llm_url
+    llm_url, llm_model, is_local = _resolve_llm_target(req.llm_url, req.llm_model)
     headers = {"Content-Type": "application/json"}
     if req.api_key.strip():
         headers["Authorization"] = f"Bearer {req.api_key.strip()}"
@@ -1495,8 +1636,11 @@ async def api_chat_stream(req: ChatRequest) -> StreamingResponse:
         yield f"data: {json.dumps({'type': 'meta', 'used_docs': used_docs, 'web_results': web_results}, ensure_ascii=False)}\n\n"
         full_raw = ""
         visible_raw = ""
+        reasoning_raw = ""
         sent_buf = ""
         in_think = False
+        think_tag_buf = ""
+        last_think_ping = 0.0
         seg_idx = 0
 
         def pop_ready_sentences(buf: str, force: bool = False) -> tuple[list[str], str]:
@@ -1506,7 +1650,7 @@ async def api_chat_stream(req: ChatRequest) -> StreamingResponse:
             """
             ready: list[str] = []
             while True:
-                min_chars = 24 if (seg_idx + len(ready)) == 0 else 38
+                min_chars = 20 if (seg_idx + len(ready)) == 0 else 32
                 cut_pos = -1
                 # 仅在完整句末标点处寻找达到最小长度的切分点；不够长就继续往后累积
                 for m in re.finditer(r"[。！？!?；;\n]+", buf):
@@ -1520,12 +1664,12 @@ async def api_chat_stream(req: ChatRequest) -> StreamingResponse:
                     if piece:
                         ready.append(piece)
                     continue
-                # 兜底：若模型连续输出超长不带句号的文本（>= 96 字），在最后一个逗号处平滑切分，避免长时间卡顿
-                if len(sanitize_for_tts(buf)) >= 96:
+                # 兜底：若模型连续输出超长不带句号的文本（>= 76 字），在最后一个逗号处平滑切分，兼顾韵律连贯与 Edge TTS 稳定响应
+                if len(sanitize_for_tts(buf)) >= 76:
                     clause_matches = list(re.finditer(r"[，,：:、]", buf))
                     fallback_pos = -1
                     for cm in reversed(clause_matches):
-                        if len(sanitize_for_tts(buf[: cm.end()])) >= 42:
+                        if len(sanitize_for_tts(buf[: cm.end()])) >= 36:
                             fallback_pos = cm.end()
                             break
                     if fallback_pos > 0:
@@ -1546,6 +1690,7 @@ async def api_chat_stream(req: ChatRequest) -> StreamingResponse:
             async with httpx.AsyncClient(timeout=120.0, trust_env=not is_local) as client:
                 cur_messages = list(messages)
                 max_continuations = 2
+                disable_reasoning = _should_disable_reasoning(llm_url, llm_model, is_local)
                 for cont_round in range(max_continuations + 1):
                     model_name = llm_model or DEFAULT_LLM_MODEL
                     payload: dict[str, Any] = {
@@ -1555,50 +1700,115 @@ async def api_chat_stream(req: ChatRequest) -> StreamingResponse:
                         "max_tokens": stream_max_tokens if cont_round == 0 else 640,
                         "stream": True,
                     }
-                    # Ollama / Gemma-4 / Qwen3 等思考模型关闭冗长隐藏推理，实现亚秒级实时语音流式开口
-                    if is_local and (":11434" in llm_url or "gemma-4" in model_name.lower() or "gemma4" in model_name.lower()):
+                    # Ollama / Gemma-4 / Qwen3 等思考模型默认关闭冗长隐藏推理，实现亚秒级实时语音流式开口
+                    if disable_reasoning:
                         payload["reasoning_effort"] = "none"
                     round_finish_reason = None
                     round_visible = ""
-                    async with client.stream("POST", llm_url, json=payload, headers=headers) as resp:
-                        resp.raise_for_status()
-                        async for line in resp.aiter_lines():
-                            if not line or not line.startswith("data:"):
+                    tried_without_reasoning = False
+                    while True:
+                        async with client.stream("POST", llm_url, json=payload, headers=headers) as resp:
+                            if resp.status_code == 400 and "reasoning_effort" in payload and not tried_without_reasoning:
+                                tried_without_reasoning = True
+                                disable_reasoning = False
+                                payload.pop("reasoning_effort", None)
                                 continue
-                            data_str = line[5:].strip()
-                            if data_str == "[DONE]":
-                                break
-                            try:
-                                obj = json.loads(data_str)
-                                choice0 = obj["choices"][0]
-                                if choice0.get("finish_reason"):
-                                    round_finish_reason = choice0.get("finish_reason")
-                                delta = choice0.get("delta", {}).get("content") or ""
-                            except Exception:
-                                continue
-                            if not delta:
-                                continue
-                            full_raw += delta
-                            # 跳过 <think>...</think>
-                            if "<think>" in delta:
-                                in_think = True
-                            if in_think:
-                                if "</think>" in delta:
-                                    in_think = False
-                                    delta = delta.split("</think>", 1)[1]
-                                else:
+                            resp.raise_for_status()
+                            async for line in resp.aiter_lines():
+                                if not line or not line.startswith("data:"):
                                     continue
-                            if not delta:
-                                continue
-                            visible_raw += delta
-                            round_visible += delta
-                            sent_buf += delta
-                            yield f"data: {json.dumps({'type': 'delta', 'text': delta}, ensure_ascii=False)}\n\n"
-                            ready, sent_buf = pop_ready_sentences(sent_buf, force=False)
-                            for s in ready:
-                                emo, gest = detect_emotion_and_gesture(s, user_msg, seg_idx)
-                                yield f"data: {json.dumps({'type': 'sentence', 'index': seg_idx, 'text': s, 'emotion': emo, 'gesture': gest}, ensure_ascii=False)}\n\n"
-                                seg_idx += 1
+                                data_str = line[5:].strip()
+                                if data_str == "[DONE]":
+                                    break
+                                try:
+                                    obj = json.loads(data_str)
+                                    choice0 = obj["choices"][0]
+                                    if choice0.get("finish_reason"):
+                                        round_finish_reason = choice0.get("finish_reason")
+                                    delta_obj = choice0.get("delta", {}) or {}
+                                    delta = delta_obj.get("content") or ""
+                                    reasoning_delta = (
+                                        delta_obj.get("reasoning")
+                                        or delta_obj.get("reasoning_content")
+                                        or ""
+                                    )
+                                except Exception:
+                                    continue
+                                if reasoning_delta:
+                                    reasoning_raw += reasoning_delta
+                                    now_t = time.time()
+                                    if (not visible_raw) and (now_t - last_think_ping >= 1.2):
+                                        last_think_ping = now_t
+                                        yield f"data: {json.dumps({'type': 'thinking', 'chars': len(reasoning_raw)}, ensure_ascii=False)}\n\n"
+                                if not delta:
+                                    continue
+                                full_raw += delta
+                                # 跨分片安全跳过 <think>...</think>
+                                chunk_text = think_tag_buf + delta
+                                think_tag_buf = ""
+                                out_parts: list[str] = []
+                                while chunk_text:
+                                    if in_think:
+                                        end_idx = chunk_text.find("</think>")
+                                        if end_idx != -1:
+                                            reasoning_raw += chunk_text[:end_idx]
+                                            in_think = False
+                                            chunk_text = chunk_text[end_idx + len("</think>") :]
+                                        else:
+                                            # 保留末尾可能半截的 "</think"
+                                            keep = 0
+                                            for k in range(1, min(len("</think>"), len(chunk_text)) + 1):
+                                                if "</think>".startswith(chunk_text[-k:]):
+                                                    keep = k
+                                            if keep:
+                                                reasoning_raw += chunk_text[:-keep]
+                                                think_tag_buf = chunk_text[-keep:]
+                                            else:
+                                                reasoning_raw += chunk_text
+                                            chunk_text = ""
+                                            now_t = time.time()
+                                            if (not visible_raw) and (now_t - last_think_ping >= 1.2):
+                                                last_think_ping = now_t
+                                                yield f"data: {json.dumps({'type': 'thinking', 'chars': len(reasoning_raw)}, ensure_ascii=False)}\n\n"
+                                    else:
+                                        start_idx = chunk_text.find("<think>")
+                                        if start_idx != -1:
+                                            if start_idx > 0:
+                                                out_parts.append(chunk_text[:start_idx])
+                                            in_think = True
+                                            chunk_text = chunk_text[start_idx + len("<think>") :]
+                                        else:
+                                            keep = 0
+                                            for k in range(1, min(len("<think>"), len(chunk_text)) + 1):
+                                                if "<think>".startswith(chunk_text[-k:]):
+                                                    keep = k
+                                            if keep:
+                                                if len(chunk_text) > keep:
+                                                    out_parts.append(chunk_text[:-keep])
+                                                think_tag_buf = chunk_text[-keep:]
+                                            else:
+                                                out_parts.append(chunk_text)
+                                            chunk_text = ""
+                                delta = "".join(out_parts)
+                                if not delta:
+                                    continue
+                                visible_raw += delta
+                                round_visible += delta
+                                sent_buf += delta
+                                yield f"data: {json.dumps({'type': 'delta', 'text': delta}, ensure_ascii=False)}\n\n"
+                                ready, sent_buf = pop_ready_sentences(sent_buf, force=False)
+                                for s in ready:
+                                    emo, gest = detect_emotion_and_gesture(s, user_msg, seg_idx)
+                                    yield f"data: {json.dumps({'type': 'sentence', 'index': seg_idx, 'text': s, 'emotion': emo, 'gesture': gest}, ensure_ascii=False)}\n\n"
+                                    seg_idx += 1
+                        break
+
+                    if think_tag_buf and not in_think:
+                        visible_raw += think_tag_buf
+                        round_visible += think_tag_buf
+                        sent_buf += think_tag_buf
+                        yield f"data: {json.dumps({'type': 'delta', 'text': think_tag_buf}, ensure_ascii=False)}\n\n"
+                        think_tag_buf = ""
 
                     # 判断是否被长度截断或停在半句话：若是则自动无缝续写补全完整句子
                     tail_clean = visible_raw.strip()
@@ -1606,10 +1816,23 @@ async def api_chat_stream(req: ChatRequest) -> StreamingResponse:
                     need_continue = (round_finish_reason == "length") or (ended_mid_sentence and bool(round_visible.strip()))
                     if not need_continue or cont_round >= max_continuations:
                         break
-                    cur_messages = list(messages) + [
-                        {"role": "assistant", "content": tail_clean},
-                        {"role": "user", "content": "请紧接着上面未说完的句子自然继续说完，把意思讲完整，不要重复前文。"},
-                    ]
+                    if not tail_clean:
+                        # 模型首轮全部消耗在隐藏思考里未吐出正文：直接要求输出最终答复
+                        cur_messages = list(messages) + [
+                            {"role": "user", "content": "请直接用简洁自然的中文口语给出最终回答，不要展示思考过程。"},
+                        ]
+                    else:
+                        cur_messages = list(messages) + [
+                            {"role": "assistant", "content": tail_clean},
+                            {"role": "user", "content": "请紧接着上面未说完的句子自然继续说完，把意思讲完整，不要重复前文。"},
+                        ]
+
+            if not visible_raw.strip() and reasoning_raw.strip():
+                recovered = clean_spoken_text(_extract_fallback_from_reasoning(reasoning_raw))
+                if recovered:
+                    visible_raw = recovered
+                    sent_buf = recovered
+                    yield f"data: {json.dumps({'type': 'delta', 'text': recovered}, ensure_ascii=False)}\n\n"
 
             ready, sent_buf = pop_ready_sentences(sent_buf, force=True)
             for s in ready:
@@ -1640,17 +1863,10 @@ async def api_chat(req: ChatRequest) -> dict[str, Any]:
     if not user_msg:
         return {"reply": "我在听，请问想先讨论哪部分内容？", "llm_mode": "empty", "used_docs": [], "segments": []}
     messages, used_docs = _prepare_messages(req)
-    llm_url = (req.llm_url or DEFAULT_LLM_URL).strip()
-    llm_model = (req.llm_model or DEFAULT_LLM_MODEL).strip()
-    if llm_url == "http://127.0.0.1:8080/v1/chat/completions" and DEFAULT_LLM_URL != llm_url:
-        llm_url = DEFAULT_LLM_URL
-        if llm_model in ("", "local-model"):
-            llm_model = DEFAULT_LLM_MODEL
-    is_local = "127.0.0.1" in llm_url or "localhost" in llm_url
+    llm_url, model_name, is_local = _resolve_llm_target(req.llm_url, req.llm_model)
     headers = {"Content-Type": "application/json"}
     if req.api_key.strip():
         headers["Authorization"] = f"Bearer {req.api_key.strip()}"
-    model_name = req.llm_model or DEFAULT_LLM_MODEL
     payload: dict[str, Any] = {
         "model": model_name,
         "messages": messages,
@@ -1658,15 +1874,24 @@ async def api_chat(req: ChatRequest) -> dict[str, Any]:
         "max_tokens": 1024 if is_local else 1536,
         "stream": False,
     }
-    if is_local and (":11434" in llm_url or "gemma-4" in model_name.lower() or "gemma4" in model_name.lower()):
+    if _should_disable_reasoning(llm_url, model_name, is_local):
         payload["reasoning_effort"] = "none"
     t0 = time.time()
     try:
         async with httpx.AsyncClient(timeout=45.0, trust_env=not is_local) as client:
             r = await client.post(llm_url, json=payload, headers=headers)
+            if r.status_code == 400 and "reasoning_effort" in payload:
+                payload.pop("reasoning_effort", None)
+                r = await client.post(llm_url, json=payload, headers=headers)
             r.raise_for_status()
             data = r.json()
-            reply = clean_spoken_text(data["choices"][0]["message"]["content"]) or "好的，我在听。"
+            msg_obj = data["choices"][0]["message"]
+            raw_content = msg_obj.get("content") or ""
+            if not raw_content.strip():
+                raw_content = _extract_fallback_from_reasoning(
+                    msg_obj.get("reasoning") or msg_obj.get("reasoning_content") or ""
+                )
+            reply = clean_spoken_text(raw_content) or "好的，我在听。"
             return {
                 "reply": reply,
                 "segments": split_speech_segments(reply),
@@ -1914,6 +2139,10 @@ async def api_regenerate(req: RegenRequest) -> dict[str, Any]:
     threading.Thread(target=_worker, daemon=True).start()
     return {"ok": True, "started": True, "cmd": cmd}
 
+
+# 确保 macOS / Windows 上 ES Module (.mjs) 与 WebAssembly (.wasm) 静态文件返回标准 MIME 类型
+mimetypes.add_type("application/javascript", ".mjs")
+mimetypes.add_type("application/wasm", ".wasm")
 
 app.mount("/assets", StaticFiles(directory=str(ASSETS_DIR)), name="assets")
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")

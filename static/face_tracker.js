@@ -41,14 +41,23 @@ export class FaceGazeTracker {
     this.lastDetectTime = 0;
     this.lastVideoTime = -1;
     this.lastMpTimestamp = 0;
+    this.lastPlayRetryAt = 0;
 
     // 检测引擎状态
     this.engineName = "none"; // "mediapipe" | "native" | "skin"
     this.mpDetector = null;
     this.mpLoading = null;
     this.mpFailed = false;
+    this.mpConsecutiveErrors = 0;
     this.nativeDetector = null;
     this.nativeBusy = false;
+    this.nativeBusySince = 0;
+
+    // 统一 2D 采样画布（绕开 macOS Safari WebKit 对 HTMLVideoElement 直喂 OffscreenCanvas WebGL texImage2D 的黑帧/异常问题，并对 MacBook 720p/1080p 镜头自动降采样提速）
+    this.sampleCanvas = document.createElement("canvas");
+    this.sampleCanvas.width = 320;
+    this.sampleCanvas.height = 240;
+    this.sampleCtx = this.sampleCanvas.getContext("2d", { willReadFrequently: true });
 
     // 兜底肤色检测离屏画布
     this.workCanvas = document.createElement("canvas");
@@ -204,9 +213,9 @@ export class FaceGazeTracker {
       audio: false,
       video: {
         facingMode: { ideal: this.facingMode },
-        width: { ideal: 320, max: 640 },
-        height: { ideal: 240, max: 480 },
-        frameRate: { ideal: 20, max: 30 },
+        width: { ideal: 320 },
+        height: { ideal: 240 },
+        frameRate: { ideal: 20 },
       },
     };
 
@@ -214,8 +223,16 @@ export class FaceGazeTracker {
     try {
       stream = await navigator.mediaDevices.getUserMedia(constraints);
     } catch (err) {
-      // 某些手机/桌面摄像头不支持 ideal facingMode，降级为最简 video: true
-      if (err && (err.name === "OverconstrainedError" || err.name === "ConstraintNotSatisfiedError")) {
+      // 某些 MacBook FaceTime HD / 外接镜头 / 手机不支持上述 ideal 约束，非权限/无设备/占用错误时自动降级为最简 video: true
+      const hardErrors = new Set([
+        "NotAllowedError",
+        "PermissionDeniedError",
+        "NotFoundError",
+        "DevicesNotFoundError",
+        "NotReadableError",
+        "TrackStartError",
+      ]);
+      if (!err || !hardErrors.has(err.name)) {
         stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: true });
       } else {
         throw err;
@@ -238,6 +255,7 @@ export class FaceGazeTracker {
     }
     this.videoEl.setAttribute("playsinline", "");
     this.videoEl.setAttribute("webkit-playsinline", "");
+    this.videoEl.setAttribute("muted", "");
     this.videoEl.playsInline = true;
     this.videoEl.muted = true;
     this.videoEl.autoplay = true;
@@ -254,6 +272,10 @@ export class FaceGazeTracker {
         if (ok) resolve();
         else reject(err || new Error("摄像头视频流加载失败"));
       };
+      if (v.readyState >= 1 && v.videoWidth > 0) {
+        finish(true);
+        return;
+      }
       const timer = setTimeout(() => finish(true), 2500);
       v.onloadedmetadata = () => {
         clearTimeout(timer);
@@ -364,7 +386,12 @@ export class FaceGazeTracker {
       if (now - this.lastDetectTime < minInterval) return;
 
       const v = this.videoEl;
-      if (!v || v.readyState < 2 || !v.videoWidth || !v.videoHeight) return;
+      if (!v) return;
+      if (v.paused && this.stream && now - this.lastPlayRetryAt > 600) {
+        this.lastPlayRetryAt = now;
+        v.play().catch(() => {});
+      }
+      if (v.readyState < 2 || !v.videoWidth || !v.videoHeight) return;
 
       // 若视频帧未推进则跳过重复推理
       if (v.currentTime === this.lastVideoTime && now - this.lastDetectTime < 140) return;
@@ -376,15 +403,41 @@ export class FaceGazeTracker {
     this.rafId = requestAnimationFrame(tick);
   }
 
+  _drawToSampleCanvas(video) {
+    const vw = video.videoWidth || 0;
+    const vh = video.videoHeight || 0;
+    if (!vw || !vh || !this.sampleCtx) return null;
+    const maxW = 320;
+    const scale = vw > maxW ? maxW / vw : 1;
+    const cw = Math.max(64, Math.round(vw * scale));
+    const ch = Math.max(48, Math.round(vh * scale));
+    if (this.sampleCanvas.width !== cw || this.sampleCanvas.height !== ch) {
+      this.sampleCanvas.width = cw;
+      this.sampleCanvas.height = ch;
+    }
+    try {
+      this.sampleCtx.drawImage(video, 0, 0, cw, ch);
+      return this.sampleCanvas;
+    } catch (_) {
+      return null;
+    }
+  }
+
   _processFrame(video, now) {
-    // Tier 1: MediaPipe BlazeFace (精准人脸框 + 双眼关键点)
+    const frameCanvas = this._drawToSampleCanvas(video);
+    const inputSource = frameCanvas || video;
+    const inputW = frameCanvas ? frameCanvas.width : video.videoWidth;
+    const inputH = frameCanvas ? frameCanvas.height : video.videoHeight;
+
+    // Tier 1: MediaPipe BlazeFace (精准人脸框 + 双眼关键点；喂入 2D sampleCanvas 规避 macOS Safari WebGL texImage2D(video) 黑帧缺陷)
     if (this.mpDetector) {
       try {
         const ts = Math.max(Math.round(now), this.lastMpTimestamp + 1);
         this.lastMpTimestamp = ts;
-        const result = this.mpDetector.detectForVideo(video, ts);
+        const result = this.mpDetector.detectForVideo(inputSource, ts);
+        this.mpConsecutiveErrors = 0;
         const dets = result && result.detections ? result.detections : [];
-        const best = this._pickBestMediaPipeFace(dets, video.videoWidth, video.videoHeight);
+        const best = this._pickBestMediaPipeFace(dets, inputW, inputH);
         if (best) {
           this._emitDetection(best, now, "mediapipe");
         } else {
@@ -392,32 +445,55 @@ export class FaceGazeTracker {
         }
         return;
       } catch (err) {
+        this.mpConsecutiveErrors += 1;
         console.warn("[FaceGazeTracker] MediaPipe 单帧推理异常:", err);
+        if (this.mpConsecutiveErrors >= 5) {
+          try {
+            if (typeof this.mpDetector.close === "function") this.mpDetector.close();
+          } catch (_) {}
+          this.mpDetector = null;
+          this.mpFailed = true;
+          this.engineName = this.nativeDetector ? "native" : "skin";
+          if (this.active) {
+            this.onStatus({
+              phase: "fallback",
+              engine: this.engineName,
+              message: this.engineName === "native" ? "已自动切换浏览器原生人脸检测" : "已自动切换轻量视觉追踪兜底",
+            });
+          }
+        }
       }
     }
 
-    // Tier 2: 浏览器原生 FaceDetector
-    if (this.nativeDetector && !this.nativeBusy) {
-      this.nativeBusy = true;
-      this.nativeDetector
-        .detect(video)
-        .then((faces) => {
-          this.nativeBusy = false;
-          if (!this.active) return;
-          const best = this._pickBestNativeFace(faces, video.videoWidth, video.videoHeight);
-          if (best) this._emitDetection(best, performance.now(), "native");
-          else this._emitNoFace(performance.now(), "native");
-        })
-        .catch(() => {
-          this.nativeBusy = false;
-          this.nativeDetector = null;
-          this.engineName = "skin";
-        });
-      return;
+    // Tier 2: 浏览器原生 FaceDetector（增加超时熔断，防止 macOS Chrome Vision 接口偶发挂起锁死 nativeBusy）
+    if (this.nativeDetector) {
+      if (this.nativeBusy && now - this.nativeBusySince > 1800) {
+        this.nativeBusy = false;
+        this.nativeDetector = null;
+        this.engineName = "skin";
+      } else if (!this.nativeBusy) {
+        this.nativeBusy = true;
+        this.nativeBusySince = now;
+        this.nativeDetector
+          .detect(inputSource)
+          .then((faces) => {
+            this.nativeBusy = false;
+            if (!this.active) return;
+            const best = this._pickBestNativeFace(faces, inputW, inputH);
+            if (best) this._emitDetection(best, performance.now(), "native");
+            else this._emitNoFace(performance.now(), "native");
+          })
+          .catch(() => {
+            this.nativeBusy = false;
+            this.nativeDetector = null;
+            this.engineName = "skin";
+          });
+        return;
+      }
     }
 
     // Tier 3: 零依赖 YCbCr 肤色中心兜底（WASM 加载中或旧浏览器仍可立即跟随）
-    const skinFace = this._detectSkinFaceCentroid(video);
+    const skinFace = this._detectSkinFaceCentroid(inputSource);
     if (skinFace) {
       this._emitDetection(skinFace, now, "skin");
     } else {
