@@ -1,0 +1,2452 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>小汐 · 3D 实时语音虚拟人像 & 资料沟通</title>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "/static/vendor/node_modules/three/build/three.module.min.js",
+      "three/addons/": "/static/vendor/node_modules/three/examples/jsm/",
+      "@pixiv/three-vrm": "/static/vendor/node_modules/@pixiv/three-vrm/lib/three-vrm.module.min.js"
+    }
+  }
+  </script>
+  <style>
+    :root {
+      --bg: #0b0e14;
+      --panel: rgba(20, 26, 38, 0.9);
+      --panel-soft: rgba(255, 255, 255, 0.04);
+      --border: rgba(255, 255, 255, 0.1);
+      --text: #edf2f7;
+      --muted: #94a3b8;
+      --accent: #60a5fa;
+      --ok: #34d399;
+      --warn: #fbbf24;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: "Microsoft YaHei", "PingFang SC", system-ui, -apple-system, sans-serif;
+      background: radial-gradient(circle at top, #152136 0%, #0b0e14 68%);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 20px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(11, 14, 20, 0.78);
+      backdrop-filter: blur(12px);
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 16px; }
+    .brand .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 10px var(--ok); }
+    .status-pills { display: flex; gap: 8px; flex-wrap: wrap; font-size: 12px; }
+    .pill {
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .pill.ok { color: var(--ok); border-color: rgba(52,211,153,0.35); }
+    .pill.warn { color: var(--warn); border-color: rgba(251,191,36,0.35); }
+    .pill.info { color: var(--accent); border-color: rgba(96,165,250,0.4); background: rgba(96,165,250,0.1); }
+
+    main {
+      flex: 1;
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) 410px;
+      gap: 16px;
+      padding: 16px 20px;
+      max-width: 1500px;
+      width: 100%;
+      margin: 0 auto;
+    }
+    @media (max-width: 1040px) {
+      main { grid-template-columns: 1fr; }
+    }
+
+    .stage-col { display: flex; flex-direction: column; gap: 12px; }
+    .stage-shell {
+      display: flex;
+      flex-direction: column;
+      border-radius: 18px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.55);
+      background: #080c14;
+    }
+    .video-stage {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: #080c14;
+      overflow: hidden;
+    }
+    .stage-3d-wrap {
+      position: absolute;
+      inset: 0;
+      z-index: 5;
+      display: block;
+    }
+    .stage-3d-wrap.hidden { display: none; }
+    .stage-3d-wrap canvas { width: 100% !important; height: 100% !important; display: block; }
+
+    .video-stage video, .video-stage img.anchor-bg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      pointer-events: none;
+    }
+    .video-stage video { opacity: 0; transition: opacity 0.16s linear; }
+    .video-stage video.active { opacity: 1; z-index: 2; }
+    .video-stage video#vid-lipsync.active { z-index: 6; }
+
+    .stage-badge {
+      position: absolute;
+      top: 14px;
+      left: 14px;
+      z-index: 12;
+      padding: 6px 12px;
+      border-radius: 999px;
+      background: rgba(10, 14, 22, 0.78);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255,255,255,0.14);
+      font-size: 13px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      pointer-events: none;
+    }
+    .stage-badge.syncing { background: rgba(37, 99, 235, 0.85); border-color: rgba(147, 197, 253, 0.6); color: #fff; }
+    .stage-badge.speaking { background: rgba(16, 185, 129, 0.85); border-color: rgba(110, 231, 183, 0.6); color: #fff; }
+
+    .stage-top-right {
+      position: absolute;
+      top: 14px;
+      right: 14px;
+      z-index: 12;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .mode-pill-overlay {
+      padding: 5px 11px;
+      border-radius: 999px;
+      background: rgba(10, 14, 22, 0.72);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255,255,255,0.14);
+      font-size: 12px;
+      color: #cbd5e1;
+      pointer-events: none;
+    }
+    .cam-reset-btn {
+      padding: 5px 10px;
+      border-radius: 999px;
+      font-size: 11px;
+      background: rgba(10, 14, 22, 0.75);
+      border: 1px solid rgba(255,255,255,0.18);
+      color: #e2e8f0;
+      cursor: pointer;
+    }
+    .cam-reset-btn:hover { background: rgba(37, 99, 235, 0.75); }
+
+    /* 内网/公网顶部引导条（HTTP 麦克风解锁 & 公网离线缓存提示） */
+    .access-banner {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 8px 20px;
+      background: linear-gradient(90deg, rgba(37, 99, 235, 0.22), rgba(16, 185, 129, 0.16));
+      border-bottom: 1px solid rgba(96, 165, 250, 0.35);
+      font-size: 12px;
+      color: #e2e8f0;
+      flex-wrap: wrap;
+    }
+    .access-banner.show { display: flex; }
+    .access-banner .banner-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+    /* 3D 模型下载与离线缓存进度悬浮卡片 */
+    .vrm-progress-overlay {
+      position: absolute;
+      inset: 0;
+      z-index: 8;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(8, 12, 20, 0.56);
+      backdrop-filter: blur(4px);
+      padding: 16px;
+    }
+    .vrm-progress-overlay.show { display: flex; }
+    .vrm-progress-card {
+      width: min(360px, 92%);
+      background: rgba(15, 23, 42, 0.92);
+      border: 1px solid rgba(96, 165, 250, 0.38);
+      border-radius: 14px;
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 9px;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+    }
+    .vrm-progress-title { font-size: 13px; font-weight: 700; color: #f1f5f9; }
+    .vrm-progress-sub { font-size: 11px; color: #94a3b8; line-height: 1.45; }
+    .vrm-progress-track {
+      height: 7px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.1);
+      overflow: hidden;
+    }
+    .vrm-progress-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #3b82f6, #34d399);
+      transition: width 0.15s ease;
+    }
+    button.cache-ok {
+      border-color: rgba(52, 211, 153, 0.45);
+      background: rgba(16, 185, 129, 0.18);
+      color: #a7f3d0;
+    }
+
+    /* 独立电影底栏字幕条：位于 16:9 画面正下方，彻底不遮挡人物面部、身体或手势！ */
+    .subtitle-dock {
+      min-height: 44px;
+      padding: 8px 18px;
+      background: linear-gradient(180deg, rgba(10, 14, 24, 0.96) 0%, rgba(14, 19, 32, 0.98) 100%);
+      border-top: 1px solid rgba(255, 255, 255, 0.07);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      transition: min-height 0.2s ease, padding 0.2s ease, opacity 0.2s ease;
+    }
+    .subtitle-dock.hidden {
+      display: none;
+    }
+    .subtitle-text {
+      max-width: 96%;
+      font-size: 14.5px;
+      line-height: 1.48;
+      color: #f1f5f9;
+      letter-spacing: 0.02em;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      transition: opacity 0.18s ease, transform 0.18s ease;
+    }
+    .subtitle-text.pop {
+      animation: captionPop 0.22s ease-out;
+    }
+    .subtitle-text:empty::after {
+      content: "实时字幕区（播报时自动按短句滚动显示，不遮挡人物）";
+      color: rgba(148, 163, 184, 0.45);
+      font-size: 12px;
+    }
+    @keyframes captionPop {
+      from { opacity: 0.25; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .toolbar-card, .docs-card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 12px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .toolbar-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .btn-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    button {
+      cursor: pointer;
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 10px;
+      padding: 8px 13px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #fff;
+      background: rgba(255,255,255,0.08);
+      transition: transform 0.1s ease, background 0.15s ease;
+    }
+    button:hover { background: rgba(255,255,255,0.15); }
+    button:active { transform: scale(0.97); }
+    button.primary { background: linear-gradient(135deg, #2563eb, #6366f1); border: none; }
+    button.primary.active { background: linear-gradient(135deg, #059669, #10b981); }
+    button.mini { padding: 4px 8px; font-size: 11px; border-radius: 8px; }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    .mode-switch {
+      display: inline-flex;
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 3px;
+      gap: 3px;
+    }
+    .mode-switch button { border: none; background: transparent; color: var(--muted); padding: 6px 10px; font-size: 12px; border-radius: 8px; }
+    .mode-switch button.selected { background: linear-gradient(135deg, #2563eb, #6366f1); color: #fff; }
+
+    .meter-bar-wrap { height: 8px; border-radius: 999px; background: rgba(255,255,255,0.07); overflow: hidden; }
+    .meter-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #34d399 0%, #60a5fa 75%, #818cf8 100%); transition: width 0.05s linear; }
+
+    .drop-zone {
+      border: 1.5px dashed rgba(96, 165, 250, 0.4);
+      border-radius: 12px;
+      padding: 10px 12px;
+      background: rgba(96, 165, 250, 0.05);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .drop-zone.dragover { background: rgba(96, 165, 250, 0.16); border-color: var(--accent); }
+    .doc-list { display: flex; flex-direction: column; gap: 6px; max-height: 150px; overflow-y: auto; }
+    .doc-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 7px 10px;
+      border-radius: 10px;
+      background: var(--panel-soft);
+      border: 1px solid var(--border);
+      font-size: 12px;
+    }
+    .doc-item label { display: flex; align-items: center; gap: 8px; cursor: pointer; min-width: 0; flex: 1; }
+    .doc-name { font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .doc-meta { color: var(--muted); font-size: 11px; white-space: nowrap; }
+
+    .side-col { display: flex; flex-direction: column; gap: 12px; max-height: calc(100vh - 90px); }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .chat-card { flex: 1; min-height: 320px; overflow: hidden; }
+    .card-title { font-size: 13px; font-weight: 700; color: #cbd5e1; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .chat-log { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 9px; padding-right: 4px; }
+    .msg {
+      padding: 9px 12px;
+      border-radius: 12px;
+      font-size: 13px;
+      line-height: 1.55;
+      max-width: 94%;
+      word-break: break-word;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .msg.user { align-self: flex-end; background: rgba(37, 99, 235, 0.35); border: 1px solid rgba(96,165,250,0.3); }
+    .msg.assistant { align-self: flex-start; background: rgba(255, 255, 255, 0.07); border: 1px solid var(--border); }
+    .msg-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; font-size: 11px; color: var(--muted); }
+    .msg-actions { display: flex; gap: 6px; align-items: center; }
+
+    .chat-input-row { display: flex; gap: 8px; }
+    input[type="text"], input[type="password"], select, textarea {
+      width: 100%;
+      background: rgba(0, 0, 0, 0.32);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 8px 10px;
+      font-size: 13px;
+      outline: none;
+      font-family: inherit;
+    }
+    input[type="text"]:focus, select:focus, textarea:focus { border-color: var(--accent); }
+
+    details.settings-box { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 10px 14px; }
+    details.settings-box summary { cursor: pointer; font-size: 13px; font-weight: 700; color: #cbd5e1; list-style: none; display: flex; justify-content: space-between; align-items: center; }
+    .control-grid { display: grid; gap: 9px; font-size: 12px; color: var(--muted); margin-top: 10px; }
+    .control-inline { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .small-note { font-size: 11px; color: var(--muted); line-height: 1.45; }
+    .paste-panel { display: none; flex-direction: column; gap: 6px; }
+    .paste-panel.open { display: flex; }
+
+    #btnMobileImmersive { display: none; }
+
+    /* 手机竖屏专属适配：最大化 3D 虚拟形象画幅，紧凑单手触控栏，聊天框紧随其后 */
+    @media (max-width: 768px) {
+      body { min-height: 100dvh; }
+      header {
+        padding: 7px 12px;
+        gap: 6px;
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .brand { font-size: 14px; gap: 7px; }
+      .status-pills {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        gap: 5px;
+        padding-bottom: 2px;
+      }
+      .status-pills::-webkit-scrollbar { display: none; }
+      .pill { padding: 2px 8px; font-size: 11px; white-space: nowrap; flex-shrink: 0; }
+
+      .access-banner { padding: 7px 12px; font-size: 11px; }
+
+      main {
+        display: flex;
+        flex-direction: column;
+        padding: 6px 8px calc(16px + env(safe-area-inset-bottom, 0px));
+        gap: 10px;
+      }
+      .stage-col, .side-col {
+        display: contents;
+        max-height: none;
+      }
+      .stage-shell { order: 1; border-radius: 16px; }
+      .toolbar-card { order: 2; padding: 10px 10px; gap: 8px; border-radius: 14px; }
+      .chat-card { order: 3; min-height: 220px; max-height: 340px; padding: 11px; border-radius: 14px; }
+      .docs-card { order: 4; padding: 11px; border-radius: 14px; }
+      details.settings-box { order: 5; padding: 10px 12px; border-radius: 14px; }
+
+      /* 核心：竖屏最大化 3D 虚拟人像舞台（占屏高 66% ~ 74%） */
+      .video-stage {
+        aspect-ratio: auto;
+        height: clamp(440px, 66dvh, 74dvh);
+      }
+      #modeOverlay { display: none; }
+      #btnMobileImmersive { display: inline-block; }
+      .stage-badge { top: 10px; left: 10px; padding: 4px 10px; font-size: 12px; }
+      .stage-top-right { top: 10px; right: 10px; gap: 5px; }
+      .cam-reset-btn { padding: 5px 9px; font-size: 11px; }
+
+      .subtitle-dock { min-height: 38px; padding: 6px 12px; }
+      .subtitle-text { font-size: 13.5px; line-height: 1.42; }
+      .subtitle-text:empty::after { content: "实时字幕区（不遮挡人物）"; font-size: 11px; }
+
+      /* 单手友好语音按钮布局 */
+      .toolbar-row { gap: 7px; }
+      .toolbar-row > .btn-row:first-child { width: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+      #btnMic, #btnHoldAsr { min-height: 44px; padding: 8px 10px; font-size: 13px; width: 100%; }
+      #btnStopSpeak, #btnCacheModel { min-height: 36px; padding: 6px 8px; font-size: 12px; width: 100%; }
+
+      .mode-switch { width: 100%; display: grid; grid-template-columns: repeat(3, 1fr); }
+      .mode-switch button { padding: 6px 4px; font-size: 11px; white-space: nowrap; }
+
+      #gestureBar {
+        width: 100%;
+        display: flex !important;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        padding-bottom: 2px;
+      }
+      #gestureBar::-webkit-scrollbar { display: none; }
+      #gestureBar button, #gestureBar span { flex-shrink: 0; white-space: nowrap; }
+
+      /* 防止 iOS Safari 点击输入框自动放大页面 */
+      input[type="text"], input[type="password"], select, textarea { font-size: 16px; }
+      .control-inline { flex-direction: column; align-items: stretch; gap: 5px; }
+      .control-inline > select, .control-inline > input, .control-inline > div { width: 100% !important; }
+
+      /* 一键沉浸式全屏竖屏视频通话模式 */
+      body.mobile-immersive header,
+      body.mobile-immersive .access-banner,
+      body.mobile-immersive .chat-card,
+      body.mobile-immersive .docs-card,
+      body.mobile-immersive details.settings-box,
+      body.mobile-immersive .mode-switch,
+      body.mobile-immersive #gestureBar,
+      body.mobile-immersive #interimText {
+        display: none !important;
+      }
+      body.mobile-immersive main { padding: 4px 6px calc(10px + env(safe-area-inset-bottom, 0px)); gap: 6px; }
+      body.mobile-immersive .video-stage {
+        height: calc(100dvh - 156px - env(safe-area-inset-bottom, 0px));
+        min-height: 480px;
+      }
+      body.mobile-immersive .toolbar-card { padding: 8px; gap: 6px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <span class="dot"></span>
+      <span>小汐 · 3D 实时语音虚拟人像 &amp; 资料沟通</span>
+    </div>
+    <div class="status-pills">
+      <span class="pill ok" id="pill3d">Three.js 3D: 加载中...</span>
+      <span class="pill ok" id="pillStack">小智语音栈: 检查中...</span>
+      <span class="pill info" id="pillDocs">已加载资料: 0 份</span>
+      <span class="pill" id="pillLlm">对话模型检查中...</span>
+    </div>
+  </header>
+
+  <div class="access-banner" id="accessBanner">
+    <span id="accessBannerText"></span>
+    <div class="banner-actions">
+      <button class="mini primary" id="btnSwitchHttps" style="display:none;">🔒 一键切换 HTTPS 解锁麦克风</button>
+      <button class="mini" id="btnBannerCache" style="display:none;">📥 立即下载缓存 3D 模型</button>
+      <button class="mini" id="btnCloseBanner">知道了</button>
+    </div>
+  </div>
+
+  <main>
+    <section class="stage-col">
+      <div class="stage-shell">
+        <div class="video-stage" id="videoStage">
+          <!-- Three.js VRM 60fps 3D 实时人像舞台 -->
+          <div class="stage-3d-wrap" id="stage3dWrap"></div>
+
+          <!-- 2D MiniMax H3 视频底片与离线对口型层（3D 模式下延迟加载，不占用公网/内网隧道带宽） -->
+          <img class="anchor-bg" id="anchorImg" src="/assets/anchor.png" alt="角色形象" />
+          <video id="vid-idle" src="/assets/idle.mp4" loop muted playsinline preload="none" class="active"></video>
+          <video id="vid-listening" src="/assets/listening.mp4" loop muted playsinline preload="none"></video>
+          <video id="vid-talking" src="/assets/talking.mp4" loop muted playsinline preload="none"></video>
+          <video id="vid-lipsync" playsinline preload="none"></video>
+
+          <div class="stage-badge" id="stageBadge">😌 待机中</div>
+          <div class="vrm-progress-overlay" id="vrmProgressOverlay">
+            <div class="vrm-progress-card">
+              <div class="vrm-progress-title" id="vrmProgressTitle">📥 正在下载并缓存 3D 虚拟形象...</div>
+              <div class="vrm-progress-track"><div class="vrm-progress-fill" id="vrmProgressFill"></div></div>
+              <div class="vrm-progress-sub" id="vrmProgressSub">首次访问会自动缓存到本机浏览器，下次打开秒开免重下</div>
+              <div class="btn-row" style="justify-content:flex-end;">
+                <button class="mini" id="btnOverlay2D">⚡ 先用 2D 模式</button>
+                <button class="mini primary" id="btnOverlayRetry" style="display:none;">📥 重新下载缓存</button>
+              </div>
+            </div>
+          </div>
+          <div class="stage-top-right">
+            <div class="mode-pill-overlay" id="modeOverlay">🧍 Three.js 3D 实时对口型 (60fps)</div>
+            <button class="cam-reset-btn" id="btnToggleSub" title="显示或隐藏底部实时字幕条">字幕: 开</button>
+            <button class="cam-reset-btn" id="btnResetCam" title="重置 3D 镜头视角">重置视角</button>
+            <button class="cam-reset-btn" id="btnMobileImmersive" title="最大化沉浸式全屏人像">⛶ 全屏</button>
+          </div>
+        </div>
+        <div class="subtitle-dock" id="subtitleDock">
+          <div class="subtitle-text" id="subtitleText"></div>
+        </div>
+      </div>
+
+      <div class="toolbar-card">
+        <div class="toolbar-row">
+          <div class="btn-row">
+            <button class="primary" id="btnMic">🎤 开启实时语音 (Silero VAD)</button>
+            <button id="btnHoldAsr" title="按住说话，松开用 SenseVoiceSmall 毫秒级识别">🎙️ 按住说话</button>
+            <button id="btnStopSpeak" title="立即打断当前播报">⏹ 停止播报</button>
+            <button id="btnCacheModel" title="将当前 3D 虚拟人像下载并持久化缓存到浏览器本地（IndexedDB），公网/花生壳二次访问秒开">📥 下载缓存</button>
+          </div>
+          <div class="mode-switch" role="group" aria-label="形象与说话模式">
+            <button id="btnMode3D" class="selected" title="Three.js VRM 60fps 语音实时驱动口型与表情，零渲染延迟">🧍 3D 实时对口型</button>
+            <button id="btnModeFast" title="2D MiniMax H3 循环底片 + 小智流式语音">⚡ 2D 极速语音</button>
+            <button id="btnModeLipSync" title="调用 ComfyUI MiniMax H3 逐句渲染 2D 写实对口型视频">🎬 H3 写实对口型</button>
+          </div>
+        </div>
+        <div class="meter-bar-wrap">
+          <div class="meter-fill" id="meterFill"></div>
+        </div>
+        <div class="toolbar-row">
+          <div class="btn-row" id="gestureBar" style="gap:6px;">
+            <span class="small-note" style="margin-right:2px;">神态预览:</span>
+            <button class="mini" data-gesture="wave" data-emotion="happy">👋 打招呼</button>
+            <button class="mini" data-gesture="self_chest" data-emotion="relaxed">🤍 自我介绍(“我”)</button>
+            <button class="mini" data-gesture="point_list" data-emotion="focused">☝️ 列要点(“第一”)</button>
+            <button class="mini" data-gesture="explain_both" data-emotion="relaxed">💁 展开总结</button>
+            <button class="mini" data-gesture="ask_user" data-emotion="relaxed">🤲 询问你(“你觉得”)</button>
+            <button class="mini" data-gesture="think_chin" data-emotion="focused">🤔 思考推敲</button>
+          </div>
+          <div class="btn-row" style="gap:10px;">
+            <label class="small-note" style="display:flex;align-items:center;gap:5px;cursor:pointer;" title="询问天气、新闻、实时数据或说“查一下/搜一下”时自动联网检索">
+              <input type="checkbox" id="chkWebSearch" checked /> 🌐 实时联网
+            </label>
+            <label class="small-note" style="display:flex;align-items:center;gap:5px;cursor:pointer;">
+              <input type="checkbox" id="chkBargeIn" checked /> 允许插话打断
+            </label>
+          </div>
+        </div>
+        <div class="toolbar-row">
+          <span class="small-note" id="interimText">已升级「毫秒级拼音双唇/复韵母对口型 + 逐词语义手势时间轴 + 独立眉毛/笑眼微表情 + 二阶弹簧骨骼动力学」！</span>
+        </div>
+      </div>
+
+      <div class="docs-card">
+        <div class="card-title">
+          <span>📚 沟通资料库（上传或导入后即可直接围绕资料聊天）</span>
+          <div class="btn-row">
+            <button class="mini" id="btnTogglePaste">粘贴文本</button>
+            <button class="mini" id="btnClearDocs">清空资料</button>
+          </div>
+        </div>
+
+        <div class="drop-zone" id="dropZone">
+          <span class="small-note">拖拽 PDF / Word(.docx) / Markdown / TXT / CSV / 代码文件到这里</span>
+          <div class="btn-row">
+            <button class="mini primary" id="btnPickFile">选择文件</button>
+            <input type="file" id="fileDoc" multiple accept=".pdf,.docx,.txt,.md,.csv,.json,.py,.js,.ts,.html,.log,.yaml,.yml" style="display:none;" />
+          </div>
+        </div>
+
+        <div class="chat-input-row">
+          <input type="text" id="txtDocPath" placeholder="或直接粘贴本机文件绝对路径（如 D:\项目\方案.pdf）回车导入..." />
+          <button class="mini" id="btnImportPath" style="white-space:nowrap;">导入路径</button>
+        </div>
+
+        <div class="paste-panel" id="pastePanel">
+          <input type="text" id="txtPasteName" placeholder="资料标题（例如：会议纪要.txt）" />
+          <textarea id="txtPasteContent" rows="3" placeholder="在这里粘贴想一起讨论的文字内容..."></textarea>
+          <div class="btn-row" style="justify-content:flex-end;">
+            <button class="mini primary" id="btnSavePaste">加入资料库</button>
+          </div>
+        </div>
+
+        <div class="doc-list" id="docList">
+          <div class="small-note">暂未加载资料。上传文件后，就可以让小汐帮你梳理重点、逐段讨论或回答细节问题。</div>
+        </div>
+      </div>
+    </section>
+
+    <aside class="side-col">
+      <div class="card chat-card">
+        <div class="card-title">
+          <span>💬 资料沟通对话</span>
+          <button class="mini" id="btnClearChat">清空对话</button>
+        </div>
+        <div class="chat-log" id="chatLog"></div>
+        <div class="chat-input-row">
+          <input type="text" id="txtInput" placeholder="输入问题或直接开口聊天，回车发送..." />
+          <button class="primary" id="btnSend" style="white-space:nowrap;">发送</button>
+        </div>
+      </div>
+
+      <details class="settings-box" open>
+        <summary>⚙️ 3D 虚拟形象、语音与对话模型设置 <span>▾</span></summary>
+        <div class="control-grid">
+          <div class="control-inline">
+            <span>3D 虚拟人像 (.vrm)</span>
+            <div style="display:flex;gap:6px;width:215px;">
+              <select id="selVrmModel" style="flex:1;"></select>
+              <button class="mini" id="btnUploadVrm" style="white-space:nowrap;">导入.vrm</button>
+              <input type="file" id="fileVrm" accept=".vrm" style="display:none;" />
+            </div>
+          </div>
+          <div class="control-inline">
+            <span>本地离线缓存</span>
+            <div style="display:flex;gap:6px;width:215px;align-items:center;">
+              <span class="small-note" id="cacheStatusText" style="flex:1;">检查中...</span>
+              <button class="mini" id="btnCacheAll" title="一键把所有 3D 模型缓存到浏览器本地">全缓存</button>
+              <button class="mini" id="btnClearCache" title="清空浏览器本地模型缓存">清空</button>
+            </div>
+          </div>
+          <div class="control-inline">
+            <span>TTS 语音引擎</span>
+            <select id="selTtsEngine" style="width: 215px;">
+              <option value="auto" selected>自动优选 (Edge神经音 → 本地Kokoro)</option>
+              <option value="edge">Edge 7.3.1 神经音色 (推荐)</option>
+              <option value="kokoro">本地离线 Kokoro v1.1 神经音色</option>
+              <option value="sapi">本机离线 Windows SAPI</option>
+            </select>
+          </div>
+          <div class="control-inline">
+            <span>语音音色</span>
+            <select id="selVoice" style="width: 215px;">
+              <option value="zh-CN-XiaoyiNeural" selected>晓伊（活泼自然 · 女声）</option>
+              <option value="zh-CN-XiaoxiaoNeural">晓晓（温柔知性 · 女声）</option>
+              <option value="zh-CN-XiaohanNeural">晓涵（清晰沉稳 · 女声）</option>
+              <option value="zh-CN-YunxiNeural">云希（自然沉稳 · 男声）</option>
+            </select>
+          </div>
+          <div class="control-inline">
+            <span>对话模型接口</span>
+            <input type="text" id="txtLlmUrl" style="width: 215px;" placeholder="http://127.0.0.1:8080/v1/chat/completions" />
+          </div>
+          <div class="control-inline">
+            <span>模型名 / API Key</span>
+            <div style="display:flex;gap:6px;width:215px;">
+              <input type="text" id="txtLlmModel" placeholder="local-model" style="flex:1;" />
+              <input type="password" id="txtLlmKey" placeholder="Key(本地留空)" style="flex:1;" />
+            </div>
+          </div>
+          <div class="control-inline">
+            <span>联网检索策略</span>
+            <select id="selWebMode" style="width: 215px;">
+              <option value="auto" selected>智能按需联网（实时词/“查一下”触发）</option>
+              <option value="always">每次对话都联网检索</option>
+              <option value="off">关闭联网检索</option>
+            </select>
+          </div>
+          <div class="control-inline">
+            <span>说话停顿等待（防长句截断）</span>
+            <select id="selVadSilence" style="width: 215px;">
+              <option value="0.85">较快响应 (停顿 0.85 秒发送)</option>
+              <option value="1.20" selected>均衡防截断 (停顿 1.2 秒发送)</option>
+              <option value="1.80">长句思考模式 (停顿 1.8 秒发送)</option>
+            </select>
+          </div>
+          <div class="control-inline">
+            <span>H3 写实对口型画质</span>
+            <select id="selSyncQuality" style="width: 215px;">
+              <option value="realtime" selected>⚡ 4090 极速实时流 (448×256 · 4步)</option>
+              <option value="fast">🎬 均衡清晰对口型 (512×288 · 4步)</option>
+              <option value="hd">✨ 高清写实对口型 (768×448 · 4步)</option>
+            </select>
+          </div>
+          <div class="small-note" id="regenStatus">3D 引擎基于开源 Three.js + @pixiv/three-vrm，支持标准 VRoid Studio / VRoid Hub 任意 .vrm 角色文件。</div>
+        </div>
+      </details>
+    </aside>
+  </main>
+
+  <script type="module">
+    const $ = (id) => document.getElementById(id);
+
+    const baseVideos = {
+      idle: $("vid-idle"),
+      listening: $("vid-listening"),
+      talking: $("vid-talking"),
+    };
+    const lipSyncVideo = $("vid-lipsync");
+
+    // 默认直接开启 Three.js 3D 实时对口型模式！
+    let speakMode = localStorage.getItem("avatar_speak_mode_v2") || "3d"; // "3d" | "fast" | "lipsync"
+    let chatHistory = [];
+    let micActive = false;
+    let audioCtx = null;
+    let micStream = null;
+    let voiceWs = null;
+    let pcmNode = null;
+    let holdRecording = false;
+    let holdBuffers = [];
+
+    let currentTtsAudio = null;
+    let activeTurnId = 0;
+    let activeAbort = null;
+    let isSpeaking = false;
+    let lastSpeakEndAt = 0;
+    let recentAvatarTexts = []; // 记录角色最近说过的话，用于识别并丢弃扬声器自回声
+    let loudBargeInMs = 0;
+
+    function notifyWsSpeakingState(speaking) {
+      if (voiceWs && voiceWs.readyState === WebSocket.OPEN) {
+        try { voiceWs.send(JSON.stringify({ type: "speaking_state", speaking: !!speaking })); } catch (_) {}
+      }
+    }
+
+    function setSpeakingFlag(val) {
+      if (isSpeaking === val) return;
+      isSpeaking = val;
+      if (!val) {
+        lastSpeakEndAt = performance.now();
+        loudBargeInMs = 0;
+      }
+      notifyWsSpeakingState(val);
+    }
+
+    function recordAvatarSpokenText(txt) {
+      if (!txt) return;
+      recentAvatarTexts.push({ text: txt, time: performance.now() });
+      if (recentAvatarTexts.length > 10) recentAvatarTexts.shift();
+      if (voiceWs && voiceWs.readyState === WebSocket.OPEN) {
+        try { voiceWs.send(JSON.stringify({ type: "avatar_text", text: txt })); } catch (_) {}
+      }
+    }
+
+    function isLikelySelfEcho(asrText) {
+      const clean = (s) => (s || "").replace(/[^\u4e00-\u9fffa-zA-Z0-9]/g, "").toLowerCase();
+      const cand = clean(asrText);
+      if (!cand) return true;
+
+      // 明确的打断口令一律放行！
+      if (/^(停|停一下|等一下|等等|别说了|打住|先停|换一个|不对)/.test(cand)) {
+        return false;
+      }
+
+      const now = performance.now();
+      const inEchoWindow = isSpeaking || (now - lastSpeakEndAt < 1800);
+      if (!inEchoWindow) return false;
+
+      // 外放期间单字杂音（如“嗯”、“啊”、“的”）直接忽略，防止误打断
+      if (cand.length <= 1) return true;
+
+      const recentPool = recentAvatarTexts
+        .filter((item) => now - item.time < 15000)
+        .map((item) => clean(item.text))
+        .join(" ");
+      if (!recentPool) return false;
+
+      if (recentPool.includes(cand)) return true;
+
+      // 计算字符重合度：若识别出的字 >= 55% 都刚从角色嘴里说出过，判定为扬声器回声！
+      let hit = 0;
+      for (const ch of cand) {
+        if (recentPool.includes(ch)) hit++;
+      }
+      return hit / cand.length >= 0.55;
+    }
+
+    // --- 本地离线缓存（IndexedDB：HTTP/HTTPS 均可用，公网/花生壳二次访问 0 流量秒开） ---
+    const VRM_CACHE_DB = "xiaoxi_vrm_cache_v1";
+    const VRM_CACHE_STORE = "models";
+    let vrmModelsMeta = [];
+    let httpsInfo = { enabled: false, port: 8766 };
+    let vrmCachingNow = false;
+
+    function openVrmCacheDb() {
+      return new Promise((resolve, reject) => {
+        if (!window.indexedDB) return reject(new Error("浏览器不支持 IndexedDB"));
+        const req = indexedDB.open(VRM_CACHE_DB, 1);
+        req.onupgradeneeded = () => {
+          const db = req.result;
+          if (!db.objectStoreNames.contains(VRM_CACHE_STORE)) {
+            db.createObjectStore(VRM_CACHE_STORE, { keyPath: "url" });
+          }
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error || new Error("打开缓存库失败"));
+      });
+    }
+
+    async function vrmCacheGet(url) {
+      try {
+        const db = await openVrmCacheDb();
+        return await new Promise((resolve) => {
+          const tx = db.transaction(VRM_CACHE_STORE, "readonly");
+          const req = tx.objectStore(VRM_CACHE_STORE).get(url);
+          req.onsuccess = () => resolve(req.result || null);
+          req.onerror = () => resolve(null);
+        });
+      } catch (_) {
+        return null;
+      }
+    }
+
+    async function vrmCachePut(url, blob, name = "") {
+      try {
+        const db = await openVrmCacheDb();
+        await new Promise((resolve, reject) => {
+          const tx = db.transaction(VRM_CACHE_STORE, "readwrite");
+          tx.objectStore(VRM_CACHE_STORE).put({
+            url,
+            name,
+            size: blob.size,
+            updatedAt: Date.now(),
+            blob,
+          });
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+        });
+        return true;
+      } catch (_) {
+        return false;
+      }
+    }
+
+    async function vrmCacheListAll() {
+      try {
+        const db = await openVrmCacheDb();
+        return await new Promise((resolve) => {
+          const tx = db.transaction(VRM_CACHE_STORE, "readonly");
+          const req = tx.objectStore(VRM_CACHE_STORE).getAll();
+          req.onsuccess = () => resolve(req.result || []);
+          req.onerror = () => resolve([]);
+        });
+      } catch (_) {
+        return [];
+      }
+    }
+
+    async function vrmCacheClear() {
+      try {
+        const db = await openVrmCacheDb();
+        await new Promise((resolve, reject) => {
+          const tx = db.transaction(VRM_CACHE_STORE, "readwrite");
+          tx.objectStore(VRM_CACHE_STORE).clear();
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+        });
+      } catch (_) {}
+      await refreshCacheStatusUI();
+    }
+
+    function showVrmOverlay(title, sub, pct = null, showRetry = false) {
+      $("vrmProgressTitle").textContent = title;
+      $("vrmProgressSub").textContent = sub;
+      if (pct !== null) $("vrmProgressFill").style.width = `${Math.max(0, Math.min(100, pct))}%`;
+      $("btnOverlayRetry").style.display = showRetry ? "inline-block" : "none";
+      $("vrmProgressOverlay").classList.add("show");
+    }
+    function hideVrmOverlay() {
+      $("vrmProgressOverlay").classList.remove("show");
+    }
+
+    async function refreshCacheStatusUI() {
+      const items = await vrmCacheListAll();
+      const totalMb = items.reduce((acc, it) => acc + (it.size || 0), 0) / (1024 * 1024);
+      const curUrl = $("selVrmModel")?.value || localStorage.getItem("avatar_vrm_url") || "";
+      const curItem = items.find((it) => it.url === curUrl);
+      const btn = $("btnCacheModel");
+
+      if ($("cacheStatusText")) {
+        $("cacheStatusText").textContent = items.length
+          ? `已缓存 ${items.length} 个 (${totalMb.toFixed(1)}MB)`
+          : "未缓存";
+      }
+      if (btn && !vrmCachingNow) {
+        if (curItem) {
+          const mb = (curItem.size / (1024 * 1024)).toFixed(1);
+          btn.textContent = `✅ 已本地缓存 (${mb}MB)`;
+          btn.classList.add("cache-ok");
+        } else {
+          btn.textContent = "📥 下载缓存";
+          btn.classList.remove("cache-ok");
+        }
+      }
+    }
+
+    async function downloadAndCacheVrm(url, { forceDownload = false, maxRetries = 3, quiet = false } = {}) {
+      if (!forceDownload) {
+        const cached = await vrmCacheGet(url);
+        if (cached && cached.blob && cached.blob.size > 10000) {
+          return { blob: cached.blob, fromCache: true };
+        }
+      }
+      const meta = vrmModelsMeta.find((m) => m.url === url);
+      const modelLabel = meta ? meta.name.replace(/\.vrm$/i, "") : "3D 虚拟形象";
+      const expectedBytes = meta && meta.size_mb ? meta.size_mb * 1024 * 1024 : 0;
+
+      vrmCachingNow = true;
+      let lastErr = null;
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          const retryNote = attempt > 1 ? `（第 ${attempt}/${maxRetries} 次重试）` : "";
+          if (!quiet) {
+            showVrmOverlay(
+              `📥 正在下载并缓存 ${modelLabel}${retryNote}`,
+              "首次访问会自动持久化缓存到浏览器本地，下次打开秒开免重下",
+              2,
+              false
+            );
+          }
+          $("btnCacheModel").textContent = `⏳ 下载缓存中...`;
+          $("pill3d").textContent = `Three.js 3D: 下载缓存中${retryNote}...`;
+
+          const res = await fetch(url, { cache: forceDownload ? "reload" : "default" });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const total = parseInt(res.headers.get("content-length") || "0", 10) || expectedBytes;
+
+          let blob = null;
+          if (res.body && res.body.getReader) {
+            const reader = res.body.getReader();
+            const chunks = [];
+            let received = 0;
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              chunks.push(value);
+              received += value.byteLength;
+              const recMb = (received / (1024 * 1024)).toFixed(1);
+              if (total > 0) {
+                const pct = Math.min(99, Math.round((received / total) * 100));
+                const totMb = (total / (1024 * 1024)).toFixed(1);
+                $("btnCacheModel").textContent = `⏳ 缓存中 ${pct}%`;
+                $("pill3d").textContent = `Three.js 3D: 下载缓存 ${pct}% (${recMb}/${totMb}MB)`;
+                if (!quiet) {
+                  showVrmOverlay(
+                    `📥 正在下载并缓存 ${modelLabel} (${pct}%)`,
+                    `已下载 ${recMb} MB / ${totMb} MB · 完成后自动写入本地缓存，下次打开 0 流量秒开`,
+                    pct,
+                    false
+                  );
+                }
+              } else {
+                $("btnCacheModel").textContent = `⏳ 缓存中 ${recMb}MB`;
+                $("pill3d").textContent = `Three.js 3D: 已下载 ${recMb}MB...`;
+              }
+            }
+            blob = new Blob(chunks, { type: "application/octet-stream" });
+          } else {
+            blob = await res.blob();
+          }
+
+          if (!blob || blob.size < 10000) throw new Error("下载文件不完整");
+          await vrmCachePut(url, blob, modelLabel);
+          vrmCachingNow = false;
+          await refreshCacheStatusUI();
+          return { blob, fromCache: false };
+        } catch (err) {
+          lastErr = err;
+          console.warn(`[VRM Cache] 第 ${attempt} 次下载失败:`, err);
+          if (attempt < maxRetries) {
+            await new Promise((r) => setTimeout(r, 900 * attempt));
+          }
+        }
+      }
+      vrmCachingNow = false;
+      await refreshCacheStatusUI();
+      throw lastErr || new Error("下载失败");
+    }
+
+    async function loadVrmWithCache(url, { forceDownload = false } = {}) {
+      if (!url || !avatar3dReady) return;
+      try {
+        const { blob, fromCache } = await downloadAndCacheVrm(url, { forceDownload, maxRetries: 3, quiet: false });
+        const blobUrl = URL.createObjectURL(blob);
+        try {
+          await avatar3d.loadVRM(blobUrl);
+        } finally {
+          URL.revokeObjectURL(blobUrl);
+        }
+        hideVrmOverlay();
+        if (fromCache) {
+          $("pill3d").textContent = $("pill3d").textContent.replace(/\)$/, " · 本地缓存)");
+        }
+        $("pill3d").className = "pill ok";
+        await refreshCacheStatusUI();
+      } catch (e) {
+        $("pill3d").textContent = "Three.js 3D: 网络波动，可点击「📥 下载缓存」重试";
+        $("pill3d").className = "pill warn";
+        if (speakMode === "3d") {
+          showVrmOverlay(
+            "⚠️ 3D 模型下载中断（公网/隧道波动）",
+            `原因：${e.message || "网络超时"}。你可以点击「重新下载缓存」，或先切 2D 模式立即聊天。`,
+            0,
+            true
+          );
+        }
+        console.error("[loadVrmWithCache]", e);
+      }
+    }
+
+    function isPrivateLanHost(host) {
+      return (
+        /^192\.168\.\d+\.\d+$/.test(host) ||
+        /^10\.\d+\.\d+\.\d+$/.test(host) ||
+        /^172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+$/.test(host)
+      );
+    }
+
+    function getLanHttpsUrl() {
+      return `https://${location.hostname}:${httpsInfo.port || 8766}${location.pathname}${location.search}`;
+    }
+
+    function updateAccessBanner() {
+      const host = location.hostname;
+      const isLocal = host === "localhost" || host === "127.0.0.1";
+      const isHttp = location.protocol === "http:";
+      const banner = $("accessBanner");
+      if (!isHttp || isLocal) {
+        banner.classList.remove("show");
+        return;
+      }
+      if (isPrivateLanHost(host)) {
+        const httpsUrl = getLanHttpsUrl();
+        $("accessBannerText").textContent = httpsInfo.enabled
+          ? `🔒 当前是内网 HTTP 访问（${location.origin}），浏览器会拦截麦克风；点击右侧一键切换到内网 HTTPS（${httpsUrl}）即可正常使用实时语音！`
+          : `🔒 当前是内网 HTTP 访问，浏览器安全策略限制麦克风调用。`;
+        $("btnSwitchHttps").style.display = httpsInfo.enabled ? "inline-block" : "none";
+        $("btnBannerCache").style.display = "none";
+        banner.classList.add("show");
+      } else {
+        $("accessBannerText").textContent =
+          "🌐 当前为公网访问：点击「📥 下载缓存」可将 3D 形象持久化保存到本机浏览器（下次打开秒开）；如需在公网直接开启麦克风，请在花生壳控制台开启 HTTPS 映射。";
+        $("btnSwitchHttps").style.display = "none";
+        $("btnBannerCache").style.display = "inline-block";
+        banner.classList.add("show");
+      }
+    }
+
+    // 异步延迟加载 Three.js 3D 引擎：确保公网/花生壳弱网下按钮、聊天、资料库秒开可用，不因大体积 3D 脚本阻塞页面交互
+    const isMobileDevice = /Android|iPhone|iPad|iPod|Mobile|MicroMessenger/i.test(navigator.userAgent);
+    let sharedPlaybackCtx = null;
+    let avatar3dReady = false;
+    let avatar3d = {
+      setState() {},
+      setEmotion() {},
+      triggerGesture() {},
+      resetCamera() {},
+      ensureAudioAnalyser() {},
+      stopActiveAudio() {},
+      async playAudioBufferBlob() { throw new Error("3d not ready"); },
+      attachAudioElement() {},
+      detachAudio() {},
+      async loadVRM() {},
+    };
+
+    // 在用户点击/触摸的同步手势中立即解锁录音与播放 AudioContext（解决 iOS Safari / Android 手机无声与不收音问题）
+    function unlockMobileAudioSync() {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      try {
+        if (!audioCtx) audioCtx = new AC();
+        if (audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
+      } catch (_) {}
+      try {
+        if (avatar3dReady) {
+          avatar3d.ensureAudioAnalyser();
+        } else {
+          if (!sharedPlaybackCtx) sharedPlaybackCtx = new AC();
+          if (sharedPlaybackCtx.state === "suspended") sharedPlaybackCtx.resume().catch(() => {});
+          const s = sharedPlaybackCtx.createBuffer(1, 1, 22050);
+          const n = sharedPlaybackCtx.createBufferSource();
+          n.buffer = s;
+          n.connect(sharedPlaybackCtx.destination);
+          n.start(0);
+        }
+      } catch (_) {}
+    }
+    document.addEventListener("touchstart", unlockMobileAudioSync, { once: true, passive: true });
+    document.addEventListener("pointerdown", unlockMobileAudioSync, { once: true, passive: true });
+
+    async function initAvatar3DEngine() {
+      try {
+        $("pill3d").textContent = "Three.js 3D: 正在加载引擎...";
+        const mod = await import("/static/avatar3d.js?v=7");
+        avatar3d = new mod.Avatar3DEngine($("stage3dWrap"), (statusText) => {
+          $("pill3d").textContent = `Three.js 3D: ${statusText}`;
+          if (statusText.includes("就绪")) $("pill3d").className = "pill ok";
+        });
+        if (sharedPlaybackCtx) {
+          avatar3d.audioCtx = sharedPlaybackCtx;
+          avatar3d.analyser = sharedPlaybackCtx.createAnalyser();
+          avatar3d.analyser.fftSize = 1024;
+          avatar3d.analyser.smoothingTimeConstant = 0.35;
+          avatar3d.analyser.connect(sharedPlaybackCtx.destination);
+          avatar3d.timeData = new Float32Array(avatar3d.analyser.fftSize);
+          avatar3d.freqData = new Uint8Array(avatar3d.analyser.frequencyBinCount);
+          avatar3d._audioUnlocked = true;
+        }
+        avatar3dReady = true;
+        await loadVrmList();
+      } catch (e) {
+        $("pill3d").textContent = "Three.js 3D: 已降级 2D 模式";
+        $("pill3d").className = "pill warn";
+        hideVrmOverlay();
+        console.error("[Avatar3D Init]", e);
+        if (speakMode === "3d") {
+          speakMode = "fast";
+          updateModeUI();
+          switchAvatarState("idle");
+        }
+      }
+    }
+
+    async function loadVrmList(selectUrl = null) {
+      try {
+        const r = await fetch("/api/vrm/list");
+        const d = await r.json();
+        const models = d.models || [];
+        vrmModelsMeta = models;
+        const sel = $("selVrmModel");
+        sel.innerHTML = "";
+        models.forEach((m) => {
+          const opt = document.createElement("option");
+          opt.value = m.url;
+          opt.textContent = `${m.name.replace(/\.vrm$/i, "")} (${m.size_mb}MB)`;
+          sel.appendChild(opt);
+        });
+        const targetUrl = selectUrl || localStorage.getItem("avatar_vrm_url") || (models[0] && models[0].url);
+        if (targetUrl) {
+          sel.value = targetUrl;
+          if (!sel.value && models[0]) sel.value = models[0].url;
+          if (sel.value && avatar3dReady) {
+            localStorage.setItem("avatar_vrm_url", sel.value);
+            await refreshCacheStatusUI();
+            await loadVrmWithCache(sel.value);
+          }
+        }
+      } catch (e) {
+        $("pill3d").textContent = "Three.js 3D: 加载异常";
+        $("pill3d").className = "pill warn";
+        console.error(e);
+      }
+    }
+
+    $("selVrmModel").addEventListener("change", async () => {
+      const url = $("selVrmModel").value;
+      if (!url) return;
+      localStorage.setItem("avatar_vrm_url", url);
+      await loadVrmWithCache(url);
+    });
+    $("btnResetCam").addEventListener("click", () => avatar3d.resetCamera());
+    $("btnMobileImmersive").addEventListener("click", () => {
+      const on = document.body.classList.toggle("mobile-immersive");
+      $("btnMobileImmersive").textContent = on ? "✕ 退出全屏" : "⛶ 全屏";
+      setTimeout(() => window.dispatchEvent(new Event("resize")), 60);
+    });
+    // 手机竖屏默认收起底部高级设置面板，把首屏空间留给 3D 形象与对话
+    if (window.innerWidth <= 768) {
+      const sb = document.querySelector("details.settings-box");
+      if (sb) sb.removeAttribute("open");
+    }
+
+    $("btnUploadVrm").addEventListener("click", () => $("fileVrm").click());
+    $("fileVrm").addEventListener("change", async (e) => {
+      const f = e.target.files?.[0];
+      if (!f) return;
+      const fd = new FormData();
+      fd.append("file", f);
+      $("pill3d").textContent = "Three.js 3D: 上传中...";
+      try {
+        const r = await fetch("/api/vrm/upload", { method: "POST", body: fd });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.detail || "上传失败");
+        await loadVrmList(d.url);
+      } catch (err) {
+        alert("导入 .vrm 失败: " + err.message);
+      } finally {
+        e.target.value = "";
+      }
+    });
+
+    // 支持把 .vrm 文件直接拖到 3D 舞台上换形象
+    const stageEl = $("videoStage");
+    stageEl.addEventListener("dragover", (e) => e.preventDefault());
+    stageEl.addEventListener("drop", async (e) => {
+      e.preventDefault();
+      const f = e.dataTransfer.files?.[0];
+      if (!f || !f.name.toLowerCase().endsWith(".vrm")) return;
+      const fd = new FormData();
+      fd.append("file", f);
+      const r = await fetch("/api/vrm/upload", { method: "POST", body: fd });
+      const d = await r.json();
+      if (r.ok && d.url) await loadVrmList(d.url);
+    });
+
+    $("txtLlmUrl").value = localStorage.getItem("avatar_llm_url") || "http://127.0.0.1:8080/v1/chat/completions";
+    $("txtLlmModel").value = localStorage.getItem("avatar_llm_model") || "local-model";
+    $("txtLlmKey").value = localStorage.getItem("avatar_llm_key") || "";
+
+    function saveLlmSettings() {
+      localStorage.setItem("avatar_llm_url", $("txtLlmUrl").value.trim());
+      localStorage.setItem("avatar_llm_model", $("txtLlmModel").value.trim());
+      localStorage.setItem("avatar_llm_key", $("txtLlmKey").value.trim());
+    }
+    ["txtLlmUrl", "txtLlmModel", "txtLlmKey"].forEach((id) => $(id).addEventListener("change", saveLlmSettings));
+
+    function setBadge(text, cls = "") {
+      const badge = $("stageBadge");
+      badge.textContent = text;
+      badge.className = "stage-badge" + (cls ? " " + cls : "");
+    }
+
+    let subtitleVisible = localStorage.getItem("avatar_subtitle_on") !== "0";
+    let subtitleRollTimer = null;
+    let subtitleClearTimer = null;
+
+    function updateSubtitleToggleUI() {
+      $("subtitleDock").classList.toggle("hidden", !subtitleVisible);
+      $("btnToggleSub").textContent = subtitleVisible ? "字幕: 开" : "字幕: 关";
+      localStorage.setItem("avatar_subtitle_on", subtitleVisible ? "1" : "0");
+    }
+    $("btnToggleSub").addEventListener("click", () => {
+      subtitleVisible = !subtitleVisible;
+      updateSubtitleToggleUI();
+    });
+    updateSubtitleToggleUI();
+
+    function splitCaptionClauses(text, maxChars = 24) {
+      const clean = (text || "").trim();
+      if (!clean) return [];
+      const rawParts = clean.split(/(?<=[，。！？；、,!?])/).map((s) => s.trim()).filter(Boolean);
+      const pages = [];
+      let buf = "";
+      for (const part of rawParts) {
+        if (buf && (buf + part).length > maxChars) {
+          pages.push(buf);
+          buf = part;
+        } else {
+          buf += part;
+        }
+      }
+      if (buf) pages.push(buf);
+      const out = [];
+      for (const p of pages) {
+        if (p.length <= maxChars + 6) out.push(p);
+        else {
+          for (let i = 0; i < p.length; i += maxChars) out.push(p.slice(i, i + maxChars));
+        }
+      }
+      return out;
+    }
+
+    function renderSubtitleText(str) {
+      const el = $("subtitleText");
+      if (el.textContent === (str || "")) return;
+      el.textContent = str || "";
+      el.classList.remove("pop");
+      if (str) {
+        void el.offsetWidth;
+        el.classList.add("pop");
+      }
+    }
+
+    function setSubtitle(text, durationSec = 0) {
+      clearInterval(subtitleRollTimer);
+      clearTimeout(subtitleClearTimer);
+      subtitleRollTimer = null;
+      subtitleClearTimer = null;
+
+      const pages = splitCaptionClauses(text, 24);
+      if (!pages.length) {
+        renderSubtitleText("");
+        return;
+      }
+      renderSubtitleText(pages[0]);
+      if (pages.length === 1) return;
+
+      // 多短句按字数权重平滑翻页滚动，始终只显示当前正在说的 1~2 句短字幕
+      const totalChars = pages.reduce((acc, s) => acc + s.length, 0) || 1;
+      const estTotalMs = (durationSec > 0.4 ? durationSec : Math.max(2.0, totalChars * 0.19)) * 1000;
+      const startAt = performance.now();
+      let curIdx = 0;
+      const boundaries = [];
+      let acc = 0;
+      for (const p of pages) {
+        acc += p.length;
+        boundaries.push((acc / totalChars) * estTotalMs);
+      }
+
+      subtitleRollTimer = setInterval(() => {
+        const elapsed = performance.now() - startAt;
+        let idx = pages.length - 1;
+        for (let i = 0; i < boundaries.length; i++) {
+          if (elapsed < boundaries[i]) { idx = i; break; }
+        }
+        if (idx !== curIdx) {
+          curIdx = idx;
+          renderSubtitleText(pages[idx]);
+        }
+        if (elapsed >= estTotalMs + 600) {
+          clearInterval(subtitleRollTimer);
+          subtitleRollTimer = null;
+        }
+      }, 120);
+    }
+
+    function updateModeUI() {
+      const is3D = speakMode === "3d";
+      const isFast = speakMode === "fast";
+      const isSync = speakMode === "lipsync";
+
+      $("btnMode3D").classList.toggle("selected", is3D);
+      $("btnModeFast").classList.toggle("selected", isFast);
+      $("btnModeLipSync").classList.toggle("selected", isSync);
+
+      $("stage3dWrap").classList.toggle("hidden", !is3D);
+      $("btnResetCam").style.display = is3D ? "inline-block" : "none";
+
+      if (is3D) $("modeOverlay").textContent = "🧍 Three.js 3D 实时对口型 (60fps)";
+      else if (isFast) $("modeOverlay").textContent = "⚡ 2D 极速流式语音 (~1秒开口)";
+      else $("modeOverlay").textContent = "🎬 MiniMax H3 写实对口型";
+
+      localStorage.setItem("avatar_speak_mode_v2", speakMode);
+    }
+
+    function switchAvatarState(nextState) {
+      avatar3d.setState(nextState === "talking" ? "speaking" : nextState);
+
+      if (speakMode !== "3d") {
+        lipSyncVideo.classList.remove("active");
+        lipSyncVideo.pause();
+        const vidKey = nextState === "thinking" ? "listening" : nextState;
+        Object.entries(baseVideos).forEach(([k, v]) => {
+          if (k === vidKey) {
+            v.classList.add("active");
+            v.play().catch(() => {});
+          } else {
+            v.classList.remove("active");
+          }
+        });
+      }
+
+      if (nextState === "idle") {
+        setBadge("😌 待机中");
+        clearTimeout(subtitleClearTimer);
+        subtitleClearTimer = setTimeout(() => {
+          if (!isSpeaking) renderSubtitleText("");
+        }, 2600);
+      } else if (nextState === "listening") setBadge("👂 正在聆听...");
+      else if (nextState === "thinking") setBadge("🧠 正在阅读资料并思考...", "syncing");
+      else if (nextState === "talking") setBadge(speakMode === "3d" ? "🗣️ 3D 实时对口型播报中" : "💬 正在回复", "speaking");
+    }
+
+    function warmUpVideos() {
+      unlockMobileAudioSync();
+      if (speakMode === "3d") return;
+      ["idle", "listening", "talking"].forEach((k) => {
+        baseVideos[k].muted = true;
+        baseVideos[k].play().catch(() => {});
+      });
+    }
+
+    function stopCurrentSpeech() {
+      activeTurnId += 1;
+      if (activeAbort) {
+        activeAbort.abort();
+        activeAbort = null;
+      }
+      avatar3d.stopActiveAudio();
+      if (currentTtsAudio) {
+        currentTtsAudio.pause();
+        currentTtsAudio.src = "";
+        currentTtsAudio = null;
+      }
+      lipSyncVideo.pause();
+      lipSyncVideo.removeAttribute("src");
+      lipSyncVideo.load();
+      lipSyncVideo.classList.remove("active");
+      setSpeakingFlag(false);
+      switchAvatarState("idle");
+      setSubtitle("");
+    }
+
+    function addMsg(role, text, meta = {}) {
+      const div = document.createElement("div");
+      div.className = `msg ${role}`;
+      const body = document.createElement("div");
+      body.textContent = text;
+      div.appendChild(body);
+      div._bodyEl = body;
+
+      if (role === "assistant") {
+        const footer = document.createElement("div");
+        footer.className = "msg-footer";
+        const info = document.createElement("span");
+        const parts = [];
+        if (meta.usedDocs && meta.usedDocs.length) parts.push("参考: " + meta.usedDocs.join("、"));
+        if (meta.statusText) parts.push(meta.statusText);
+        info.textContent = parts.join(" · ");
+
+        const actions = document.createElement("div");
+        actions.className = "msg-actions";
+        footer.appendChild(info);
+        footer.appendChild(actions);
+        div.appendChild(footer);
+        div._infoEl = info;
+        div._actionsEl = actions;
+      }
+
+      $("chatLog").appendChild(div);
+      $("chatLog").scrollTop = $("chatLog").scrollHeight;
+      return div;
+    }
+
+    function attachReplayButton(msgEl, urls, text) {
+      if (!msgEl || !msgEl._actionsEl) return;
+      msgEl._actionsEl.innerHTML = "";
+      if (urls && urls.length) {
+        const btn = document.createElement("button");
+        btn.className = "mini";
+        btn.textContent = "▶ 重播视频";
+        btn.onclick = () => playClipSequence(urls, text);
+        msgEl._actionsEl.appendChild(btn);
+      } else if (text) {
+        const btnSpeak = document.createElement("button");
+        btnSpeak.className = "mini";
+        btnSpeak.textContent = "🔊 再说一遍";
+        btnSpeak.onclick = async () => {
+          stopCurrentSpeech();
+          const turn = activeTurnId;
+          setSpeakingFlag(true);
+          recordAvatarSpokenText(text);
+          setSubtitle(text);
+          try {
+            const pack = await fetchTtsSpeechPack(text);
+            await playAudioBlob(pack.blob, turn, pack.timeline);
+          } finally {
+            if (turn === activeTurnId) { setSpeakingFlag(false); switchAvatarState("idle"); }
+          }
+        };
+        msgEl._actionsEl.appendChild(btnSpeak);
+      }
+    }
+
+    function playSingleClip(url, turnId) {
+      return new Promise((resolve) => {
+        if (turnId !== activeTurnId) return resolve(false);
+        lipSyncVideo.src = url;
+        lipSyncVideo.muted = false;
+        lipSyncVideo.playsInline = true;
+        lipSyncVideo.currentTime = 0;
+
+        let settled = false;
+        const finish = (ok) => {
+          if (settled) return;
+          settled = true;
+          lipSyncVideo.onended = null;
+          lipSyncVideo.onerror = null;
+          lipSyncVideo.oncanplay = null;
+          resolve(ok);
+        };
+        lipSyncVideo.onended = () => finish(true);
+        lipSyncVideo.onerror = () => finish(false);
+        lipSyncVideo.oncanplay = () => {
+          if (turnId !== activeTurnId) return finish(false);
+          lipSyncVideo.oncanplay = null;
+          lipSyncVideo.classList.add("active");
+          setBadge("🎬 H3 4090 写实对口型播报中", "speaking");
+          lipSyncVideo.play().catch(() => {
+            // 移动端若被自动播放拦截，先静音起播再尝试恢复音量
+            lipSyncVideo.muted = true;
+            lipSyncVideo.play().then(() => { lipSyncVideo.muted = false; }).catch(() => finish(false));
+          });
+        };
+        lipSyncVideo.load();
+      });
+    }
+
+    async function playClipSequence(urls, fullText) {
+      stopCurrentSpeech();
+      const myTurn = activeTurnId;
+      setSpeakingFlag(true);
+      recordAvatarSpokenText(fullText);
+      setSubtitle(fullText);
+      for (const url of urls) {
+        if (myTurn !== activeTurnId) break;
+        await playSingleClip(url, myTurn);
+      }
+      if (myTurn === activeTurnId) {
+        setSpeakingFlag(false);
+        switchAvatarState("idle");
+      }
+    }
+
+    async function fetchTtsSpeechPack(sentence) {
+      const res = await fetch("/api/tts_speech", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: sentence,
+          voice: $("selVoice").value,
+          engine: $("selTtsEngine").value,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.detail || "TTS HTTP " + res.status);
+      const binStr = atob(data.audio_b64);
+      const bytes = new Uint8Array(binStr.length);
+      for (let i = 0; i < binStr.length; i++) bytes[i] = binStr.charCodeAt(i);
+      const blob = new Blob([bytes], { type: data.media_type || "audio/mpeg" });
+      return { blob, engineUsed: data.engine || "", timeline: data.timeline || null };
+    }
+
+    async function playAudioBlob(blob, turnId, timeline = null) {
+      if (turnId !== activeTurnId) return;
+      // 优先使用已解锁的 Web Audio API（AudioBufferSourceNode），彻底解决 iOS Safari / Android 手机异步音频被拦截静音的问题！
+      if (avatar3dReady && typeof avatar3d.playAudioBufferBlob === "function") {
+        try {
+          await avatar3d.playAudioBufferBlob(blob, timeline, {
+            onStart: () => {
+              if (turnId === activeTurnId) switchAvatarState("talking");
+            },
+            isCancelled: () => turnId !== activeTurnId,
+          });
+          return;
+        } catch (err) {
+          console.warn("[WebAudio TTS Fallback]", err);
+        }
+      }
+      // 兜底 HTMLAudioElement（2D/降级模式）
+      await new Promise((resolve) => {
+        if (turnId !== activeTurnId) return resolve();
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        audio.playsInline = true;
+        audio.crossOrigin = "anonymous";
+        currentTtsAudio = audio;
+        avatar3d.attachAudioElement(audio, timeline);
+
+        const done = () => {
+          URL.revokeObjectURL(url);
+          if (currentTtsAudio === audio) currentTtsAudio = null;
+          resolve();
+        };
+        audio.onplay = () => { if (turnId === activeTurnId) switchAvatarState("talking"); };
+        audio.onended = done;
+        audio.onerror = done;
+        audio.play().catch(done);
+      });
+    }
+
+    async function runLipSyncForSentences(sentences, msgEl, myTurn) {
+      const quality = $("selSyncQuality").value;
+      const engine = $("selTtsEngine").value;
+      const voice = $("selVoice").value;
+      const segs = sentences.slice(0, 4);
+      const urls = [];
+      setSpeakingFlag(true);
+      segs.forEach((s) => recordAvatarSpokenText(s));
+
+      const reqClip = async (segText) => {
+        const res = await fetch("/api/lipsync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: segText, voice, engine, quality }),
+        });
+        const d = await res.json();
+        if (!res.ok || !d.ok) throw new Error(d.detail || "对口型生成失败");
+        return d;
+      };
+
+      try {
+        let nextP = reqClip(segs[0]);
+        for (let i = 0; i < segs.length; i++) {
+          if (myTurn !== activeTurnId) return;
+          setBadge(`🎬 H3 渲染对口型 (${i + 1}/${segs.length})...`, "syncing");
+          setSubtitle(segs[i]);
+          if (msgEl && msgEl._infoEl) msgEl._infoEl.textContent = `渲染第 ${i + 1}/${segs.length} 段对口型视频...`;
+
+          const clip = await nextP;
+          if (myTurn !== activeTurnId) return;
+          urls.push(clip.video_url);
+          if (i + 1 < segs.length) nextP = reqClip(segs[i + 1]);
+
+          if (msgEl && msgEl._infoEl) msgEl._infoEl.textContent = `H3 对口型就绪 · ${clip.elapsed_s}s`;
+          setSubtitle(segs[i]);
+          await playSingleClip(clip.video_url, myTurn);
+        }
+        if (myTurn === activeTurnId) attachReplayButton(msgEl, urls, segs.join(""));
+      } catch (err) {
+        if (msgEl && msgEl._infoEl) msgEl._infoEl.textContent = `H3 对口型失败(${err.message})，改用实时语音`;
+        for (const s of segs) {
+          if (myTurn !== activeTurnId) return;
+          setSubtitle(s);
+          try {
+            const pack = await fetchTtsSpeechPack(s);
+            await playAudioBlob(pack.blob, myTurn, pack.timeline);
+          } catch (_) {}
+        }
+      } finally {
+        if (myTurn === activeTurnId) {
+          setSpeakingFlag(false);
+          switchAvatarState("idle");
+        }
+      }
+    }
+
+    function splitLipSyncClauses(text, maxChars = 34) {
+      const clean = (text || "").trim();
+      if (!clean) return [];
+      if (clean.length <= maxChars + 6) return [clean];
+      const parts = clean.split(/(?<=[。！？!?；;，,])/).map((s) => s.trim()).filter(Boolean);
+      const out = [];
+      let buf = "";
+      for (const p of parts) {
+        if (buf && (buf + p).length > maxChars) {
+          out.push(buf);
+          buf = p;
+        } else {
+          buf += p;
+        }
+      }
+      if (buf) {
+        if (out.length && buf.length < 10) out[out.length - 1] += buf;
+        else out.push(buf);
+      }
+      return out.length ? out : [clean];
+    }
+
+    async function requestLipSyncClip(segText, emotion = "neutral") {
+      const quality = $("selSyncQuality").value || "realtime";
+      const engine = $("selTtsEngine").value;
+      const voice = $("selVoice").value;
+      const res = await fetch("/api/lipsync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: segText, voice, engine, quality, emotion }),
+      });
+      const d = await res.json();
+      if (!res.ok || !d.ok) throw new Error(d.detail || "对口型生成失败");
+      return d;
+    }
+
+    // 小智同款：SSE 流式对话 + 3D 60fps 实时对口型 / 4090 H3 写实对口型流式预渲染队列
+    async function sendChat(text) {
+      text = text.trim();
+      if (!text) return;
+      stopCurrentSpeech();
+      const myTurn = activeTurnId;
+
+      addMsg("user", text);
+      switchAvatarState("thinking");
+
+      const msgEl = addMsg("assistant", "", { statusText: "思考中..." });
+      const ctrl = new AbortController();
+      activeAbort = ctrl;
+
+      const streamAudioQueue = [];
+      const streamLipSyncQueue = [];
+      const lipSyncUrls = [];
+      let queuePlayerRunning = false;
+      let lipSyncPlayerRunning = false;
+      let lipSyncRenderCount = 0;
+      let lipSyncPlayedCount = 0;
+      let streamFinished = false;
+      let lastTtsEngine = "";
+      const allSentences = [];
+      let usedDocs = [];
+      let webResults = [];
+
+      function startLipSyncPrefetch() {
+        // 4090 GPU 串行高效流水线：永远保持最多 1 个正在渲染的任务，当前片播放时同步预渲染下一句
+        const busy = streamLipSyncQueue.some((it) => it.promise && !it.done);
+        if (busy) return;
+        const nextItem = streamLipSyncQueue.find((it) => !it.promise);
+        if (!nextItem) return;
+        nextItem.promise = requestLipSyncClip(nextItem.text, nextItem.emotion)
+          .then((clip) => {
+            nextItem.done = true;
+            return clip;
+          })
+          .catch((err) => {
+            nextItem.done = true;
+            throw err;
+          });
+      }
+
+      async function pumpLipSyncQueue() {
+        if (lipSyncPlayerRunning) {
+          startLipSyncPrefetch();
+          return;
+        }
+        lipSyncPlayerRunning = true;
+        setSpeakingFlag(true);
+        try {
+          while (streamLipSyncQueue.length > 0 && myTurn === activeTurnId) {
+            startLipSyncPrefetch();
+            const item = streamLipSyncQueue[0];
+            lipSyncRenderCount += 1;
+            const curIdx = lipSyncRenderCount;
+            if (!item.done) {
+              setBadge(`🎬 4090 实时生成 H3 视频 (第 ${curIdx} 段)...`, "syncing");
+              if (msgEl && msgEl._infoEl) {
+                msgEl._infoEl.textContent = `4090 正在实时生成第 ${curIdx} 段写实对口型视频...`;
+              }
+            }
+            let clip = null;
+            try {
+              clip = await item.promise;
+            } catch (err) {
+              console.warn("[H3 Stream Fallback]", err);
+              streamLipSyncQueue.shift();
+              if (myTurn !== activeTurnId) break;
+              if (msgEl && msgEl._infoEl) {
+                msgEl._infoEl.textContent = `H3 生成降级(${err.message})，改用实时语音`;
+              }
+              recordAvatarSpokenText(item.text);
+              setSubtitle(item.text);
+              try {
+                const pack = await fetchTtsSpeechPack(item.text);
+                await playAudioBlob(pack.blob, myTurn, pack.timeline);
+              } catch (_) {}
+              continue;
+            }
+            streamLipSyncQueue.shift();
+            if (myTurn !== activeTurnId) break;
+
+            lipSyncUrls.push(clip.video_url);
+            lipSyncPlayedCount += 1;
+            // 当前段开始播放前，立即触发 4090 在后台并行预渲染下一段！
+            startLipSyncPrefetch();
+
+            if (msgEl && msgEl._infoEl) {
+              msgEl._infoEl.textContent = `🎬 H3 写实第 ${lipSyncPlayedCount} 段就绪 · 生成 ${clip.elapsed_s}s / 片长 ${clip.duration}s`;
+            }
+            recordAvatarSpokenText(item.text);
+            setSubtitle(item.text, clip.duration || 0);
+            await playSingleClip(clip.video_url, myTurn);
+          }
+        } finally {
+          lipSyncPlayerRunning = false;
+          if (streamFinished && streamLipSyncQueue.length === 0 && myTurn === activeTurnId) {
+            if (lipSyncUrls.length) {
+              attachReplayButton(msgEl, lipSyncUrls, allSentences.join(""));
+            }
+            setSpeakingFlag(false);
+            switchAvatarState("idle");
+          }
+        }
+      }
+
+      async function pumpAudioQueue() {
+        if (queuePlayerRunning) return;
+        queuePlayerRunning = true;
+        setSpeakingFlag(true);
+        while (streamAudioQueue.length > 0 && myTurn === activeTurnId) {
+          const item = streamAudioQueue.shift();
+          try {
+            const pack = await item.promise;
+            lastTtsEngine = pack.engineUsed || lastTtsEngine;
+            if (myTurn !== activeTurnId) break;
+            recordAvatarSpokenText(item.text);
+            setSubtitle(item.text, pack.timeline?.duration || 0);
+            await playAudioBlob(pack.blob, myTurn, pack.timeline);
+          } catch (_) {}
+        }
+        queuePlayerRunning = false;
+        if (streamFinished && streamAudioQueue.length === 0 && myTurn === activeTurnId) {
+          setSpeakingFlag(false);
+          switchAvatarState("idle");
+        }
+      }
+
+      try {
+        const res = await fetch("/api/chat/stream", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            text,
+            history: chatHistory,
+            llm_url: $("txtLlmUrl").value.trim(),
+            llm_model: $("txtLlmModel").value.trim(),
+            api_key: $("txtLlmKey").value.trim(),
+            use_docs: true,
+            web_search: $("chkWebSearch").checked ? $("selWebMode").value : "off",
+          }),
+          signal: ctrl.signal,
+        });
+        if (!res.ok) throw new Error("LLM HTTP " + res.status);
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder("utf-8");
+        let sseBuf = "";
+        let finalReply = "";
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done || myTurn !== activeTurnId) break;
+          sseBuf += decoder.decode(value, { stream: true });
+          const parts = sseBuf.split("\n\n");
+          sseBuf = parts.pop() || "";
+
+          for (const part of parts) {
+            const line = part.trim();
+            if (!line.startsWith("data:")) continue;
+            let ev = null;
+            try { ev = JSON.parse(line.slice(5).trim()); } catch (_) { continue; }
+
+            if (ev.type === "searching") {
+              setBadge("🌐 正在联网检索实时信息...", "syncing");
+              msgEl._infoEl.textContent = "正在联网检索实时信息...";
+            } else if (ev.type === "meta") {
+              usedDocs = ev.used_docs || [];
+              webResults = ev.web_results || [];
+              if (webResults.length) {
+                setBadge("🧠 已获取实时信息，正在整理回复...", "syncing");
+              }
+            } else if (ev.type === "delta") {
+              msgEl._bodyEl.textContent += ev.text;
+              $("chatLog").scrollTop = $("chatLog").scrollHeight;
+            } else if (ev.type === "sentence") {
+              allSentences.push(ev.text);
+              if (speakMode === "3d" || speakMode === "fast") {
+                streamAudioQueue.push({
+                  text: ev.text,
+                  promise: fetchTtsSpeechPack(ev.text),
+                });
+                pumpAudioQueue();
+              } else if (speakMode === "lipsync") {
+                // 4090 H3 实时写实对口型：首段切短（18字 ≈ 2.5秒）实现最快首帧出画面，后续段适中（32字）边播边预渲染下一段！
+                const isFirstClip = lipSyncRenderCount === 0 && streamLipSyncQueue.length === 0;
+                const isRealtime = $("selSyncQuality").value === "realtime";
+                const maxClauseLen = isFirstClip ? (isRealtime ? 18 : 24) : (isRealtime ? 30 : 38);
+                const clauses = splitLipSyncClauses(ev.text, maxClauseLen);
+                for (const cl of clauses) {
+                  streamLipSyncQueue.push({ text: cl, emotion: ev.emotion || "neutral", promise: null, done: false });
+                }
+                pumpLipSyncQueue();
+              }
+            } else if (ev.type === "done") {
+              finalReply = ev.reply || msgEl._bodyEl.textContent;
+              msgEl._bodyEl.textContent = finalReply;
+              const infoParts = [];
+              if (webResults.length) infoParts.push(`🌐 已联网(${webResults.length}条)`);
+              if (usedDocs.length) infoParts.push("参考: " + usedDocs.join("、"));
+              if (ev.latency_ms) infoParts.push(`响应 ${(ev.latency_ms / 1000).toFixed(1)}s`);
+              if (lastTtsEngine) infoParts.push(lastTtsEngine);
+              if (speakMode !== "lipsync" || !lipSyncPlayerRunning) {
+                msgEl._infoEl.textContent = infoParts.join(" · ");
+              }
+              if (webResults.length) {
+                const linksDiv = document.createElement("div");
+                linksDiv.style.cssText = "display:flex;flex-wrap:wrap;gap:6px;font-size:11px;margin-top:2px;";
+                webResults.slice(0, 3).forEach((item) => {
+                  if (!item.url) return;
+                  const a = document.createElement("a");
+                  a.href = item.url;
+                  a.target = "_blank";
+                  a.rel = "noopener noreferrer";
+                  a.textContent = "🔗 " + (item.title || "来源").slice(0, 22);
+                  a.style.cssText = "color:#93c5fd;text-decoration:none;background:rgba(96,165,250,0.12);padding:2px 6px;border-radius:6px;";
+                  linksDiv.appendChild(a);
+                });
+                if (linksDiv.childElementCount > 0) msgEl.appendChild(linksDiv);
+              }
+            }
+          }
+        }
+
+        streamFinished = true;
+        if (myTurn !== activeTurnId) return;
+
+        const replyText = finalReply || msgEl._bodyEl.textContent || "好的，我在听。";
+        chatHistory.push({ role: "user", content: text }, { role: "assistant", content: replyText });
+        if (chatHistory.length > 16) chatHistory = chatHistory.slice(-16);
+
+        if (speakMode === "lipsync") {
+          if (allSentences.length === 0 && replyText) {
+            for (const cl of splitLipSyncClauses(replyText, 32)) {
+              streamLipSyncQueue.push({ text: cl, emotion: "neutral", promise: null, done: false });
+            }
+            pumpLipSyncQueue();
+          } else if (!lipSyncPlayerRunning && streamLipSyncQueue.length === 0) {
+            if (lipSyncUrls.length) attachReplayButton(msgEl, lipSyncUrls, replyText);
+            setSpeakingFlag(false);
+            switchAvatarState("idle");
+          }
+        } else {
+          attachReplayButton(msgEl, null, replyText);
+          if (!queuePlayerRunning && streamAudioQueue.length === 0) {
+            setSpeakingFlag(false);
+            switchAvatarState("idle");
+          }
+        }
+      } catch (e) {
+        if (e.name !== "AbortError") {
+          console.error(e);
+          msgEl._bodyEl.textContent = "对话请求失败，请检查模型设置。";
+          switchAvatarState("idle");
+        }
+      }
+    }
+
+    // --- 小智同款：16kHz PCM -> WebSocket /ws/voice -> Silero VAD + SenseVoiceSmall ---
+    function downsampleToInt16(floatData, inputRate, targetRate = 16000) {
+      if (inputRate === targetRate) {
+        const out = new Int16Array(floatData.length);
+        for (let i = 0; i < floatData.length; i++) {
+          const s = Math.max(-1, Math.min(1, floatData[i]));
+          out[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+        }
+        return out;
+      }
+      const ratio = inputRate / targetRate;
+      const newLen = Math.max(1, Math.round(floatData.length / ratio));
+      const out = new Int16Array(newLen);
+      for (let i = 0; i < newLen; i++) {
+        const idx = Math.min(floatData.length - 1, Math.floor(i * ratio));
+        const s = Math.max(-1, Math.min(1, floatData[idx]));
+        out[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+      }
+      return out;
+    }
+
+    function encodeWavFromFloatChunks(chunks, inputRate, targetRate = 16000) {
+      let total = 0;
+      for (const c of chunks) total += c.length;
+      const merged = new Float32Array(total);
+      let off = 0;
+      for (const c of chunks) { merged.set(c, off); off += c.length; }
+      const pcm16 = downsampleToInt16(merged, inputRate, targetRate);
+      const buf = new ArrayBuffer(44 + pcm16.length * 2);
+      const view = new DataView(buf);
+      const wr = (p, s) => { for (let i = 0; i < s.length; i++) view.setUint8(p + i, s.charCodeAt(i)); };
+      wr(0, "RIFF");
+      view.setUint32(4, 36 + pcm16.length * 2, true);
+      wr(8, "WAVE");
+      wr(12, "fmt ");
+      view.setUint32(16, 16, true);
+      view.setUint16(20, 1, true);
+      view.setUint16(22, 1, true);
+      view.setUint32(24, targetRate, true);
+      view.setUint32(28, targetRate * 2, true);
+      view.setUint16(32, 2, true);
+      view.setUint16(34, 16, true);
+      wr(36, "data");
+      view.setUint32(40, pcm16.length * 2, true);
+      new Int16Array(buf, 44).set(pcm16);
+      return new Blob([buf], { type: "audio/wav" });
+    }
+
+    async function ensureMicAudio() {
+      // 必须在 await getUserMedia 之前同步创建/恢复 AudioContext，否则 iOS Safari / 手机 Chrome 会永久 suspended 导致收不到声音！
+      unlockMobileAudioSync();
+      if (micStream && micStream.active && pcmNode) {
+        if (audioCtx && audioCtx.state === "suspended") await audioCtx.resume().catch(() => {});
+        return micStream;
+      }
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        const origin = location.origin;
+        const isHttp = location.protocol === "http:" && !["localhost", "127.0.0.1"].includes(location.hostname);
+        if (isHttp && isPrivateLanHost(location.hostname) && httpsInfo.enabled) {
+          const httpsUrl = getLanHttpsUrl();
+          const go = confirm(
+            `当前是内网 HTTP 地址（${origin}），浏览器会拦截麦克风权限。\n\n是否立即跳转到本机内置的内网 HTTPS 安全地址：\n${httpsUrl}\n\n（首次打开点「高级 → 继续前往」即可正常使用麦克风！）`
+          );
+          if (go) {
+            location.href = httpsUrl;
+          }
+          throw new Error(`请通过内网 HTTPS 地址 ${httpsUrl} 打开以启用麦克风`);
+        }
+        if (isHttp) {
+          throw new Error(`浏览器限制非 HTTPS 域名调用麦克风。公网请在花生壳开启 HTTPS 映射，内网请访问 https://${location.hostname}:${httpsInfo.port || 8766}/`);
+        }
+        throw new Error("当前预览页不支持麦克风，请用系统 Edge / Chrome 打开 http://127.0.0.1:8765/");
+      }
+      micStream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === "suspended") await audioCtx.resume().catch(() => {});
+
+      const src = audioCtx.createMediaStreamSource(micStream);
+      const proc = audioCtx.createScriptProcessor(2048, 1, 1);
+      const zeroGain = audioCtx.createGain();
+      zeroGain.gain.value = 0;
+
+      proc.onaudioprocess = (ev) => {
+        const input = ev.inputBuffer.getChannelData(0);
+        const copy = new Float32Array(input.length);
+        // 手机端收音通常偏小，柔和增益 1.75x（带限幅）避免 Silero VAD 漏检
+        const gainMul = isMobileDevice ? 1.75 : 1.0;
+        let sum = 0;
+        for (let i = 0; i < input.length; i++) {
+          const s = Math.max(-1, Math.min(1, input[i] * gainMul));
+          copy[i] = s;
+          sum += s * s;
+        }
+        const rms = Math.sqrt(sum / copy.length);
+        $("meterFill").style.width = `${Math.min(100, Math.round(rms * 420))}%`;
+
+        if (holdRecording) {
+          holdBuffers.push(copy);
+          return;
+        }
+        if (micActive && voiceWs && voiceWs.readyState === WebSocket.OPEN) {
+          // 必须持续推送完整音频流（含停顿静音帧），Silero VAD 才能正常判停并完成插话识别！
+          if (isSpeaking && !$("chkBargeIn").checked) return;
+          if (!isSpeaking && performance.now() - lastSpeakEndAt < 320) return;
+          const int16 = downsampleToInt16(copy, audioCtx.sampleRate, 16000);
+          voiceWs.send(int16.buffer);
+        }
+      };
+
+      src.connect(proc);
+      proc.connect(zeroGain);
+      zeroGain.connect(audioCtx.destination);
+      pcmNode = { src, proc, zeroGain };
+      return micStream;
+    }
+
+    function openVoiceWebSocket() {
+      return new Promise((resolve, reject) => {
+        const proto = location.protocol === "https:" ? "wss:" : "ws:";
+        const ws = new WebSocket(`${proto}//${location.host}/ws/voice`);
+        ws.onopen = () => {
+          const ms = parseFloat($("selVadSilence").value || "1.20");
+          try {
+            ws.send(JSON.stringify({
+              type: "config",
+              min_silence: ms,
+              is_mobile: isMobileDevice,
+            }));
+          } catch (_) {}
+          resolve(ws);
+        };
+        ws.onerror = () => reject(new Error("WebSocket 连接失败"));
+        ws.onmessage = (ev) => {
+          let data = null;
+          try { data = JSON.parse(ev.data); } catch (_) { return; }
+          if (data.type === "vad_start") {
+            // 外放说话中绝不在 vad_start 瞬间盲目打断（避免被自己扬声器声音误伤）！等识别出非自回声文本再打断
+            if (!isSpeaking) {
+              switchAvatarState("listening");
+              $("interimText").textContent = "🎙️ 正在听你说话...";
+            }
+          } else if (data.type === "vad_end") {
+            if (!isSpeaking) {
+              $("interimText").textContent = "⚡ SenseVoiceSmall 正在极速识别...";
+            }
+          } else if (data.type === "asr" && data.text) {
+            if (isLikelySelfEcho(data.text)) {
+              console.log("[Anti-Echo] 已过滤扬声器自回声:", data.text);
+              return;
+            }
+            if (isSpeaking && !$("chkBargeIn").checked) return;
+            const pureClean = data.text.replace(/[^\u4e00-\u9fffa-zA-Z0-9]/g, "");
+            if (isSpeaking && /^(停|停一下|等一下|等等|别说了|打住|先停|闭嘴|暂停)$/.test(pureClean)) {
+              stopCurrentSpeech();
+              $("interimText").textContent = `已打断播报（${data.text}），请继续说。`;
+              return;
+            }
+            $("interimText").textContent = `已听见 (${data.engine} ${data.ms}ms): ${data.text}`;
+            sendChat(data.text);
+          } else if (data.type === "vad_silence") {
+            if (!isSpeaking) switchAvatarState("idle");
+          }
+        };
+        ws.onclose = () => {
+          if (micActive) {
+            micActive = false;
+            $("btnMic").textContent = "🎤 开启实时语音 (Silero VAD)";
+            $("btnMic").classList.remove("active");
+          }
+        };
+      });
+    }
+
+    async function toggleMic() {
+      warmUpVideos();
+      if (micActive) {
+        micActive = false;
+        if (voiceWs) { try { voiceWs.close(); } catch (_) {} voiceWs = null; }
+        if (pcmNode) {
+          try { pcmNode.src.disconnect(); pcmNode.proc.disconnect(); pcmNode.zeroGain.disconnect(); } catch (_) {}
+          pcmNode = null;
+        }
+        if (micStream) { micStream.getTracks().forEach((t) => t.stop()); micStream = null; }
+        $("btnMic").textContent = "🎤 开启实时语音 (Silero VAD)";
+        $("btnMic").classList.remove("active");
+        $("meterFill").style.width = "0%";
+        $("interimText").textContent = "实时语音已关闭。";
+        return;
+      }
+      try {
+        const stream = await ensureMicAudio();
+        voiceWs = await openVoiceWebSocket();
+        const track = stream.getAudioTracks()[0];
+        const micLabel = (track && track.label) ? track.label : "默认麦克风";
+        micActive = true;
+        $("btnMic").textContent = "🟢 实时语音监听中（点击关闭）";
+        $("btnMic").classList.add("active");
+        $("interimText").textContent = `已连接「${micLabel}」→ 3D 实时语音对话已就绪，直接开口说话即可！`;
+      } catch (e) {
+        $("interimText").textContent = `无法开启实时语音：${e.message}`;
+        alert("无法开启实时语音：" + e.message + "\n\n如果是在内置预览页受限，请用系统 Edge / Chrome 打开 http://127.0.0.1:8765/");
+      }
+    }
+
+    async function startHoldAsr() {
+      warmUpVideos();
+      try {
+        await ensureMicAudio();
+        holdBuffers = [];
+        holdRecording = true;
+        if (!isSpeaking) switchAvatarState("listening");
+        $("btnHoldAsr").textContent = "🔴 松开发送...";
+        $("interimText").textContent = "🎙️ 录音中，松开后 SenseVoiceSmall 毫秒级识别...";
+      } catch (e) {
+        alert("录音失败：" + e.message);
+      }
+    }
+    async function stopHoldAsr() {
+      if (!holdRecording) return;
+      holdRecording = false;
+      $("btnHoldAsr").textContent = "🎙️ 按住说话";
+      if (!holdBuffers.length || !audioCtx) return;
+      const wavBlob = encodeWavFromFloatChunks(holdBuffers, audioCtx.sampleRate, 16000);
+      holdBuffers = [];
+      $("interimText").textContent = "⚡ SenseVoiceSmall 识别中...";
+      try {
+        const fd = new FormData();
+        fd.append("audio", wavBlob, "speech.wav");
+        const r = await fetch("/api/asr", { method: "POST", body: fd });
+        const d = await r.json();
+        if (d.text) {
+          $("interimText").textContent = `已听见 (${d.engine} ${d.ms}ms): ${d.text}`;
+          sendChat(d.text);
+        } else {
+          $("interimText").textContent = "未检测到清晰人声，请再试一次。";
+          if (!isSpeaking) switchAvatarState("idle");
+        }
+      } catch (err) {
+        $("interimText").textContent = "识别出错: " + err.message;
+      }
+    }
+
+    // 资料库操作
+    async function refreshDocs() {
+      try {
+        const r = await fetch("/api/docs");
+        const d = await r.json();
+        const docs = d.docs || [];
+        const enabledDocs = docs.filter((x) => x.enabled);
+        const totalChars = enabledDocs.reduce((acc, x) => acc + x.chars, 0);
+        $("pillDocs").textContent = `已加载资料: ${enabledDocs.length} 份 (${totalChars} 字)`;
+
+        const list = $("docList");
+        list.innerHTML = "";
+        if (!docs.length) {
+          list.innerHTML = '<div class="small-note">暂未加载资料。上传文件、粘贴本机路径或粘贴文字后，就能直接和小汐围绕资料深入沟通。</div>';
+          return;
+        }
+        docs.forEach((doc) => {
+          const row = document.createElement("div");
+          row.className = "doc-item";
+          const lbl = document.createElement("label");
+          const cb = document.createElement("input");
+          cb.type = "checkbox";
+          cb.checked = doc.enabled;
+          cb.onchange = async () => {
+            await fetch(`/api/docs/${doc.id}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ enabled: cb.checked }),
+            });
+            refreshDocs();
+          };
+          const nameSpan = document.createElement("span");
+          nameSpan.className = "doc-name";
+          nameSpan.textContent = doc.name;
+          nameSpan.title = doc.preview || doc.name;
+          lbl.appendChild(cb);
+          lbl.appendChild(nameSpan);
+
+          const meta = document.createElement("span");
+          meta.className = "doc-meta";
+          meta.textContent = `${doc.chars} 字`;
+
+          const delBtn = document.createElement("button");
+          delBtn.className = "mini";
+          delBtn.textContent = "移除";
+          delBtn.onclick = async () => {
+            await fetch(`/api/docs/${doc.id}`, { method: "DELETE" });
+            refreshDocs();
+          };
+
+          row.appendChild(lbl);
+          row.appendChild(meta);
+          row.appendChild(delBtn);
+          list.appendChild(row);
+        });
+      } catch (_) {}
+    }
+
+    async function uploadDocFiles(fileList) {
+      for (const f of fileList) {
+        const fd = new FormData();
+        fd.append("file", f);
+        $("interimText").textContent = `正在解析资料：${f.name}...`;
+        try {
+          const r = await fetch("/api/docs/upload", { method: "POST", body: fd });
+          const d = await r.json();
+          if (!r.ok) alert(`导入 ${f.name} 失败：${d.detail || "未知错误"}`);
+        } catch (err) {
+          alert(`导入 ${f.name} 失败：${err.message}`);
+        }
+      }
+      $("interimText").textContent = "资料已加入沟通上下文，可以直接开口提问！";
+      refreshDocs();
+    }
+
+    async function importLocalPath() {
+      const path = $("txtDocPath").value.trim();
+      if (!path) return;
+      const r = await fetch("/api/docs/path", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path }),
+      });
+      const d = await r.json();
+      if (!r.ok) { alert(d.detail || "导入失败"); return; }
+      $("txtDocPath").value = "";
+      $("interimText").textContent = `已导入本机资料：${d.doc.name}（${d.doc.chars} 字）`;
+      refreshDocs();
+    }
+
+    async function savePastedDoc() {
+      const content = $("txtPasteContent").value.trim();
+      if (!content) return;
+      const name = $("txtPasteName").value.trim() || "粘贴资料.txt";
+      const r = await fetch("/api/docs/text", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, content }),
+      });
+      if (r.ok) {
+        $("txtPasteName").value = "";
+        $("txtPasteContent").value = "";
+        $("pastePanel").classList.remove("open");
+        refreshDocs();
+      }
+    }
+
+    async function refreshStatus() {
+      try {
+        const r = await fetch("/api/status");
+        const s = await r.json();
+        if (s.voice_stack) {
+          $("pillStack").textContent = `语音栈: ${s.voice_stack.vad} + ${s.voice_stack.asr}`;
+          $("pillStack").className = "pill ok";
+        }
+        const llmPortMatch = (s.default_llm_url || "").match(/:(\d+)/);
+        const llmPortLabel = llmPortMatch ? llmPortMatch[1] : "LLM";
+        $("pillLlm").textContent = s.llm_online ? `本地模型: 在线 (${llmPortLabel})` : `对话模型: 自定义/未连${llmPortLabel}`;
+        $("pillLlm").className = "pill " + (s.llm_online ? "ok" : "warn");
+        if (s.default_llm_url && !localStorage.getItem("avatar_llm_url")) {
+          $("txtLlmUrl").value = s.default_llm_url;
+        }
+        if (s.default_llm_model && !localStorage.getItem("avatar_llm_model")) {
+          $("txtLlmModel").value = s.default_llm_model;
+        }
+        if (typeof s.https_enabled === "boolean") {
+          httpsInfo.enabled = s.https_enabled;
+          httpsInfo.port = s.https_port || 8766;
+          updateAccessBanner();
+        }
+      } catch (_) {}
+    }
+
+    // 离线缓存 & HTTPS 切换事件绑定
+    $("btnSwitchHttps").addEventListener("click", () => {
+      location.href = getLanHttpsUrl();
+    });
+    $("btnCloseBanner").addEventListener("click", () => {
+      $("accessBanner").classList.remove("show");
+    });
+    $("btnOverlay2D").addEventListener("click", () => {
+      hideVrmOverlay();
+      speakMode = "fast";
+      updateModeUI();
+      switchAvatarState("idle");
+    });
+    $("btnOverlayRetry").addEventListener("click", async () => {
+      const url = $("selVrmModel").value || (vrmModelsMeta[0] && vrmModelsMeta[0].url);
+      if (url) await loadVrmWithCache(url, { forceDownload: true });
+    });
+
+    async function handleManualCacheClick() {
+      if (vrmCachingNow) return;
+      const url = $("selVrmModel").value || (vrmModelsMeta[0] && vrmModelsMeta[0].url);
+      if (!url) {
+        alert("正在读取模型列表，请稍候 1 秒再试");
+        return;
+      }
+      const existing = await vrmCacheGet(url);
+      if (existing) {
+        const reDownload = confirm(
+          `当前 3D 模型已缓存在浏览器本地（${(existing.size / (1024 * 1024)).toFixed(1)} MB），下次打开将直接从本地秒开。\n\n点击「确定」重新下载并更新缓存，点击「取消」保持现有缓存。`
+        );
+        if (!reDownload) return;
+      }
+      await loadVrmWithCache(url, { forceDownload: true });
+      $("interimText").textContent = "✅ 当前 3D 虚拟形象已持久化缓存到本地浏览器，下次访问 0 流量秒开！";
+    }
+    $("btnCacheModel").addEventListener("click", handleManualCacheClick);
+    $("btnBannerCache").addEventListener("click", handleManualCacheClick);
+
+    $("btnCacheAll").addEventListener("click", async () => {
+      if (vrmCachingNow) return;
+      if (!vrmModelsMeta.length) {
+        await loadVrmList();
+      }
+      let okCount = 0;
+      for (const m of vrmModelsMeta) {
+        try {
+          await downloadAndCacheVrm(m.url, { forceDownload: false, maxRetries: 3, quiet: false });
+          okCount += 1;
+        } catch (_) {}
+      }
+      hideVrmOverlay();
+      await refreshCacheStatusUI();
+      $("interimText").textContent = `✅ 已离线缓存 ${okCount}/${vrmModelsMeta.length} 个 3D 模型到本地浏览器，切换模型也可秒开！`;
+    });
+
+    $("btnClearCache").addEventListener("click", async () => {
+      if (!confirm("确认清空浏览器本地的 3D 模型缓存吗？")) return;
+      await vrmCacheClear();
+      $("interimText").textContent = "已清空本地 3D 模型缓存。";
+    });
+
+    // 事件绑定
+    $("btnMode3D").addEventListener("click", () => { speakMode = "3d"; updateModeUI(); });
+    $("btnModeFast").addEventListener("click", () => { speakMode = "fast"; updateModeUI(); });
+    $("btnModeLipSync").addEventListener("click", () => { speakMode = "lipsync"; updateModeUI(); });
+    $("btnMic").addEventListener("click", toggleMic);
+    $("btnStopSpeak").addEventListener("click", stopCurrentSpeech);
+    $("btnHoldAsr").addEventListener("mousedown", startHoldAsr);
+    $("btnHoldAsr").addEventListener("mouseup", stopHoldAsr);
+    $("btnHoldAsr").addEventListener("touchstart", (e) => { e.preventDefault(); startHoldAsr(); }, { passive: false });
+    $("btnHoldAsr").addEventListener("touchend", (e) => { e.preventDefault(); stopHoldAsr(); });
+    $("btnHoldAsr").addEventListener("touchcancel", stopHoldAsr);
+
+    $("btnSend").addEventListener("click", () => {
+      warmUpVideos();
+      const v = $("txtInput").value.trim();
+      if (!v) return;
+      $("txtInput").value = "";
+      sendChat(v);
+    });
+    $("txtInput").addEventListener("keydown", (e) => { if (e.key === "Enter") $("btnSend").click(); });
+    $("btnClearChat").addEventListener("click", () => { chatHistory = []; $("chatLog").innerHTML = ""; });
+
+    $("btnPickFile").addEventListener("click", () => $("fileDoc").click());
+    $("fileDoc").addEventListener("change", (e) => { if (e.target.files?.length) uploadDocFiles(e.target.files); e.target.value = ""; });
+    const dz = $("dropZone");
+    dz.addEventListener("dragover", (e) => { e.preventDefault(); dz.classList.add("dragover"); });
+    dz.addEventListener("dragleave", () => dz.classList.remove("dragover"));
+    dz.addEventListener("drop", (e) => { e.preventDefault(); dz.classList.remove("dragover"); if (e.dataTransfer.files?.length) uploadDocFiles(e.dataTransfer.files); });
+    $("btnImportPath").addEventListener("click", importLocalPath);
+    $("txtDocPath").addEventListener("keydown", (e) => { if (e.key === "Enter") importLocalPath(); });
+    $("btnTogglePaste").addEventListener("click", () => $("pastePanel").classList.toggle("open"));
+    $("btnSavePaste").addEventListener("click", savePastedDoc);
+    $("btnClearDocs").addEventListener("click", async () => { if (!confirm("确认清空资料库吗？")) return; await fetch("/api/docs", { method: "DELETE" }); refreshDocs(); });
+
+    // 动作与表情快捷触发条
+    document.querySelectorAll("#gestureBar button[data-gesture]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const g = btn.getAttribute("data-gesture");
+        const e = btn.getAttribute("data-emotion");
+        if (e) avatar3d.setEmotion(e, 4.0);
+        if (g) avatar3d.triggerGesture(g, g === "idle_relaxed" ? 0 : 3.4);
+      });
+    });
+
+    $("selVadSilence").value = localStorage.getItem("avatar_vad_silence") || "1.20";
+    $("selVadSilence").addEventListener("change", () => {
+      const v = $("selVadSilence").value;
+      localStorage.setItem("avatar_vad_silence", v);
+      if (voiceWs && voiceWs.readyState === WebSocket.OPEN) {
+        try { voiceWs.send(JSON.stringify({ type: "config", min_silence: parseFloat(v) })); } catch (_) {}
+      }
+    });
+
+    updateModeUI();
+    updateAccessBanner();
+    refreshCacheStatusUI();
+    addMsg("assistant", "你好，我是小汐！现在已经切换为 Three.js 3D 实时虚拟人像，支持 60 帧零延迟语音对口型、眼神跟随与自由换装 .vrm 模型。你可以随时拖入资料直接和我语音聊天！");
+    refreshDocs();
+    refreshStatus();
+    setInterval(refreshStatus, 5000);
+    initAvatar3DEngine();
+  </script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+{
+  "quality": "debug",
+  "preset": {
+    "img_width": 896,
+    "img_height": 512,
+    "img_steps": 6,
+    "vid_width": 512,
+    "vid_height": 288,
+    "length": 56,
+    "steps": 4,
+    "lora": "minimax_h3_turbo_4步加速ema_comfyui.safetensors",
+    "lora_strength": 1.0
+  },
+  "updated_at": "2026-11-25 12:21:49",
+  "states": {
+    "idle": true,
+    "listening": true,
+    "talking": true,
+    "startled": true
+  },
+  "has_anchor": true,
+  "has_startle_sfx": true
+}

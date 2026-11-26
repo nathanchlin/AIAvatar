@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+models/
+static/vendor/node_modules/
+assets/clips/
+assets/certs/
+assets/docs_store.json
+*.zip
+*.part
+*.log
+*.pid
+.env
