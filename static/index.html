@@ -164,6 +164,138 @@
       cursor: pointer;
     }
     .cam-reset-btn:hover { background: rgba(37, 99, 235, 0.75); }
+    .cam-reset-btn.cam-active {
+      background: rgba(16, 185, 129, 0.85);
+      border-color: rgba(110, 231, 183, 0.75);
+      color: #fff;
+      box-shadow: 0 0 12px rgba(16, 185, 129, 0.4);
+    }
+
+    /* 手机/桌面摄像头人脸注视悬浮小窗 (PiP) */
+    .cam-pip-wrap {
+      position: absolute;
+      right: 12px;
+      bottom: 12px;
+      z-index: 11;
+      width: 118px;
+      height: 88px;
+      border-radius: 12px;
+      overflow: hidden;
+      background: rgba(8, 12, 20, 0.85);
+      border: 1.5px solid rgba(96, 165, 250, 0.55);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+      display: none;
+    }
+    .cam-pip-wrap.active { display: block; }
+    .cam-pip-wrap.locked { border-color: rgba(52, 211, 153, 0.85); }
+    .cam-pip-wrap video {
+      position: absolute !important;
+      inset: 0 !important;
+      width: 100% !important;
+      height: 100% !important;
+      object-fit: cover !important;
+      opacity: 1 !important;
+      z-index: 1 !important;
+      pointer-events: none;
+    }
+    .cam-pip-wrap video.mirrored { transform: scaleX(-1); }
+    .cam-pip-wrap canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 2;
+      pointer-events: none;
+    }
+    .cam-pip-status {
+      position: absolute;
+      top: 4px;
+      left: 4px;
+      z-index: 3;
+      padding: 2px 6px;
+      border-radius: 999px;
+      background: rgba(8, 12, 20, 0.72);
+      font-size: 10px;
+      color: #e2e8f0;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      pointer-events: none;
+    }
+    .pip-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--warn);
+      flex-shrink: 0;
+    }
+    .cam-pip-wrap.locked .pip-dot {
+      background: var(--ok);
+      box-shadow: 0 0 6px var(--ok);
+    }
+    .cam-pip-actions {
+      position: absolute;
+      left: 4px;
+      right: 4px;
+      bottom: 4px;
+      z-index: 3;
+      display: flex;
+      justify-content: flex-end;
+      gap: 4px;
+    }
+    .pip-btn {
+      padding: 2px 5px;
+      min-width: 22px;
+      height: 20px;
+      border-radius: 6px;
+      border: 1px solid rgba(255,255,255,0.2);
+      background: rgba(10, 14, 22, 0.72);
+      color: #f1f5f9;
+      font-size: 10px;
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+    .pip-btn:hover { background: rgba(37, 99, 235, 0.82); }
+    .cam-pip-collapsed-pill {
+      display: none;
+      align-items: center;
+      gap: 5px;
+      padding: 5px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(52, 211, 153, 0.55);
+      background: rgba(10, 14, 22, 0.82);
+      color: #e2e8f0;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .cam-pip-wrap.collapsed {
+      width: auto;
+      height: auto;
+      border: none;
+      background: transparent;
+      box-shadow: none;
+      overflow: visible;
+    }
+    .cam-pip-wrap.collapsed video,
+    .cam-pip-wrap.collapsed canvas,
+    .cam-pip-wrap.collapsed .cam-pip-status,
+    .cam-pip-wrap.collapsed .cam-pip-actions {
+      opacity: 0 !important;
+      width: 1px !important;
+      height: 1px !important;
+      pointer-events: none !important;
+    }
+    .cam-pip-wrap.collapsed .cam-pip-collapsed-pill { display: inline-flex; }
+    button.cam-on {
+      background: linear-gradient(135deg, #059669, #10b981);
+      border-color: rgba(110, 231, 183, 0.65);
+      color: #fff;
+    }
 
     /* 内网/公网顶部引导条（HTTP 麦克风解锁 & 公网离线缓存提示） */
     .access-banner {
@@ -443,18 +575,25 @@
       #modeOverlay { display: none; }
       #btnMobileImmersive { display: inline-block; }
       .stage-badge { top: 10px; left: 10px; padding: 4px 10px; font-size: 12px; }
-      .stage-top-right { top: 10px; right: 10px; gap: 5px; }
-      .cam-reset-btn { padding: 5px 9px; font-size: 11px; }
+      .stage-top-right { top: 10px; right: 10px; gap: 4px; }
+      .cam-reset-btn { padding: 4px 8px; font-size: 11px; }
+      .cam-pip-wrap {
+        width: 86px;
+        height: 114px;
+        right: 10px;
+        bottom: 10px;
+      }
 
       .subtitle-dock { min-height: 38px; padding: 6px 12px; }
       .subtitle-text { font-size: 13.5px; line-height: 1.42; }
       .subtitle-text:empty::after { content: "实时字幕区（不遮挡人物）"; font-size: 11px; }
 
-      /* 单手友好语音按钮布局 */
+      /* 单手友好语音与摄像头按钮布局 */
       .toolbar-row { gap: 7px; }
       .toolbar-row > .btn-row:first-child { width: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
       #btnMic, #btnHoldAsr { min-height: 44px; padding: 8px 10px; font-size: 13px; width: 100%; }
       #btnStopSpeak, #btnCacheModel { min-height: 36px; padding: 6px 8px; font-size: 12px; width: 100%; }
+      #btnCamGaze { grid-column: 1 / -1; min-height: 40px; padding: 7px 10px; font-size: 13px; width: 100%; }
 
       .mode-switch { width: 100%; display: grid; grid-template-columns: repeat(3, 1fr); }
       .mode-switch button { padding: 6px 4px; font-size: 11px; white-space: nowrap; }
@@ -504,6 +643,7 @@
     </div>
     <div class="status-pills">
       <span class="pill ok" id="pill3d">Three.js 3D: 加载中...</span>
+      <span class="pill" id="pillCam">📷 注视追踪: 未开启</span>
       <span class="pill ok" id="pillStack">小智语音栈: 检查中...</span>
       <span class="pill info" id="pillDocs">已加载资料: 0 份</span>
       <span class="pill" id="pillLlm">对话模型检查中...</span>
@@ -547,9 +687,23 @@
           </div>
           <div class="stage-top-right">
             <div class="mode-pill-overlay" id="modeOverlay">🧍 Three.js 3D 实时对口型 (60fps)</div>
+            <button class="cam-reset-btn" id="btnStageCam" title="调用手机/电脑摄像头让 3D 虚拟形象实时看向你">📷 看向我</button>
             <button class="cam-reset-btn" id="btnToggleSub" title="显示或隐藏底部实时字幕条">字幕: 开</button>
             <button class="cam-reset-btn" id="btnResetCam" title="重置 3D 镜头视角">重置视角</button>
             <button class="cam-reset-btn" id="btnMobileImmersive" title="最大化沉浸式全屏人像">⛶ 全屏</button>
+          </div>
+          <div class="cam-pip-wrap" id="camPipWrap" aria-label="摄像头人脸追踪预览">
+            <video id="camPreviewVideo" class="mirrored" playsinline webkit-playsinline muted autoplay></video>
+            <canvas id="camOverlayCanvas"></canvas>
+            <div class="cam-pip-status"><span class="pip-dot"></span><span id="camPipStatusText">寻找中</span></div>
+            <div class="cam-pip-actions">
+              <button type="button" class="pip-btn" id="btnPipFlip" title="切换前置/后置摄像头">🔄</button>
+              <button type="button" class="pip-btn" id="btnPipCollapse" title="收起摄像头小窗（保持后台追踪）">—</button>
+              <button type="button" class="pip-btn" id="btnPipClose" title="关闭摄像头追踪">✕</button>
+            </div>
+            <button type="button" class="cam-pip-collapsed-pill" id="btnPipExpand" title="展开摄像头预览">
+              <span class="pip-dot"></span><span id="camCollapsedText">👁️ 注视中</span>
+            </button>
           </div>
         </div>
         <div class="subtitle-dock" id="subtitleDock">
@@ -564,6 +718,7 @@
             <button id="btnHoldAsr" title="按住说话，松开用 SenseVoiceSmall 毫秒级识别">🎙️ 按住说话</button>
             <button id="btnStopSpeak" title="立即打断当前播报">⏹ 停止播报</button>
             <button id="btnCacheModel" title="将当前 3D 虚拟人像下载并持久化缓存到浏览器本地（IndexedDB），公网/花生壳二次访问秒开">📥 下载缓存</button>
+            <button id="btnCamGaze" title="调用手机前置/后置摄像头，实时追踪你的面部让 3D 形象眼神与头部看向你">📷 摄像头看向我</button>
           </div>
           <div class="mode-switch" role="group" aria-label="形象与说话模式">
             <button id="btnMode3D" class="selected" title="Three.js VRM 60fps 语音实时驱动口型与表情，零渲染延迟">🧍 3D 实时对口型</button>
@@ -664,6 +819,26 @@
               <span class="small-note" id="cacheStatusText" style="flex:1;">检查中...</span>
               <button class="mini" id="btnCacheAll" title="一键把所有 3D 模型缓存到浏览器本地">全缓存</button>
               <button class="mini" id="btnClearCache" title="清空浏览器本地模型缓存">清空</button>
+            </div>
+          </div>
+          <div class="control-inline">
+            <span>摄像头注视灵敏度</span>
+            <select id="selCamSensitivity" style="width: 215px;">
+              <option value="0.75">柔和跟随 (0.75x)</option>
+              <option value="1.05" selected>标准自然 (1.05x · 推荐)</option>
+              <option value="1.40">灵敏追踪 (1.40x)</option>
+            </select>
+          </div>
+          <div class="control-inline">
+            <span>摄像头视角选项</span>
+            <div style="display:flex;gap:8px;width:215px;align-items:center;flex-wrap:wrap;">
+              <label class="small-note" style="display:flex;align-items:center;gap:4px;cursor:pointer;">
+                <input type="checkbox" id="chkCamMirror" checked /> 水平镜像
+              </label>
+              <label class="small-note" style="display:flex;align-items:center;gap:4px;cursor:pointer;">
+                <input type="checkbox" id="chkCamPreview" checked /> 小窗预览
+              </label>
+              <button class="mini" id="btnFlipCamera" title="切换前置/后置摄像头">🔄 切镜头</button>
             </div>
           </div>
           <div class="control-inline">
@@ -1069,14 +1244,14 @@
       if (isPrivateLanHost(host)) {
         const httpsUrl = getLanHttpsUrl();
         $("accessBannerText").textContent = httpsInfo.enabled
-          ? `🔒 当前是内网 HTTP 访问（${location.origin}），浏览器会拦截麦克风；点击右侧一键切换到内网 HTTPS（${httpsUrl}）即可正常使用实时语音！`
-          : `🔒 当前是内网 HTTP 访问，浏览器安全策略限制麦克风调用。`;
+          ? `🔒 当前是内网 HTTP 访问（${location.origin}），手机浏览器会拦截麦克风与摄像头；点击右侧一键切换到内网 HTTPS（${httpsUrl}）即可正常使用实时语音与摄像头注视追踪！`
+          : `🔒 当前是内网 HTTP 访问，浏览器安全策略限制麦克风与摄像头调用。`;
         $("btnSwitchHttps").style.display = httpsInfo.enabled ? "inline-block" : "none";
         $("btnBannerCache").style.display = "none";
         banner.classList.add("show");
       } else {
         $("accessBannerText").textContent =
-          "🌐 当前为公网访问：点击「📥 下载缓存」可将 3D 形象持久化保存到本机浏览器（下次打开秒开）；如需在公网直接开启麦克风，请在花生壳控制台开启 HTTPS 映射。";
+          "🌐 当前为公网访问：点击「📥 下载缓存」可将 3D 形象持久化保存到本机浏览器（下次打开秒开）；如需在公网开启麦克风或手机摄像头，请使用 HTTPS 地址访问。";
         $("btnSwitchHttps").style.display = "none";
         $("btnBannerCache").style.display = "inline-block";
         banner.classList.add("show");
@@ -1092,6 +1267,7 @@
       setEmotion() {},
       triggerGesture() {},
       resetCamera() {},
+      setCameraGaze() {},
       ensureAudioAnalyser() {},
       stopActiveAudio() {},
       async playAudioBufferBlob() { throw new Error("3d not ready"); },
@@ -1128,7 +1304,7 @@
     async function initAvatar3DEngine() {
       try {
         $("pill3d").textContent = "Three.js 3D: 正在加载引擎...";
-        const mod = await import("/static/avatar3d.js?v=7");
+        const mod = await import("/static/avatar3d.js?v=8");
         avatar3d = new mod.Avatar3DEngine($("stage3dWrap"), (statusText) => {
           $("pill3d").textContent = `Three.js 3D: ${statusText}`;
           if (statusText.includes("就绪")) $("pill3d").className = "pill ok";
@@ -2437,6 +2613,206 @@
       if (voiceWs && voiceWs.readyState === WebSocket.OPEN) {
         try { voiceWs.send(JSON.stringify({ type: "config", min_silence: parseFloat(v) })); } catch (_) {}
       }
+    });
+
+    // --- 手机/桌面摄像头人脸注视追踪（让 3D 虚拟形象眼神与头部看向你） ---
+    let faceTracker = null;
+    let camGazeActive = false;
+    let camStarting = false;
+    let camPipCollapsed = false;
+    let lastCamEngineLabel = "";
+
+    const savedCamSens = localStorage.getItem("avatar_cam_sens") || "1.05";
+    $("selCamSensitivity").value = savedCamSens;
+
+    function syncCameraPreviewMirrorUI() {
+      const mirrored = $("chkCamMirror").checked;
+      $("camPreviewVideo").classList.toggle("mirrored", mirrored);
+      if (faceTracker) faceTracker.setMirrorX(mirrored);
+    }
+
+    function syncCameraPreviewCollapsedUI() {
+      const pip = $("camPipWrap");
+      pip.classList.toggle("collapsed", camPipCollapsed);
+      $("chkCamPreview").checked = !camPipCollapsed;
+    }
+
+    function updateCamButtonsUI(active, locked = false) {
+      const stageBtn = $("btnStageCam");
+      const barBtn = $("btnCamGaze");
+      const pip = $("camPipWrap");
+      const pill = $("pillCam");
+
+      stageBtn.classList.toggle("cam-active", active);
+      barBtn.classList.toggle("cam-on", active);
+      pip.classList.toggle("active", active);
+      pip.classList.toggle("locked", active && locked);
+
+      if (!active) {
+        stageBtn.textContent = "📷 看向我";
+        barBtn.textContent = "📷 摄像头看向我";
+        pill.textContent = "📷 注视追踪: 未开启";
+        pill.className = "pill";
+        return;
+      }
+
+      stageBtn.textContent = locked ? "📷 注视中" : "📷 寻人中";
+      barBtn.textContent = locked ? "🟢 摄像头注视中（点击关闭）" : "🟢 摄像头已开启（寻找人脸中...）";
+      $("camPipStatusText").textContent = locked ? "已锁定" : "寻找中";
+      $("camCollapsedText").textContent = locked ? "👁️ 注视中" : "📷 寻人中";
+      const engTag = lastCamEngineLabel ? ` · ${lastCamEngineLabel}` : "";
+      pill.textContent = locked ? `📷 注视追踪: 已锁定${engTag}` : `📷 注视追踪: 寻找人脸${engTag}`;
+      pill.className = locked ? "pill ok" : "pill info";
+    }
+
+    async function ensureFaceTracker() {
+      if (faceTracker) return faceTracker;
+      const mod = await import("/static/face_tracker.js?v=1");
+      faceTracker = new mod.FaceGazeTracker({
+        videoEl: $("camPreviewVideo"),
+        overlayCanvas: $("camOverlayCanvas"),
+        facingMode: "user",
+        mirrorX: $("chkCamMirror").checked,
+        sensitivity: parseFloat($("selCamSensitivity").value || "1.05"),
+        targetFps: isMobileDevice ? 16 : 20,
+        onGaze: (gaze) => {
+          avatar3d.setCameraGaze(gaze);
+          if (camGazeActive) {
+            if (gaze.engine === "mediapipe") lastCamEngineLabel = "MediaPipe";
+            else if (gaze.engine === "native") lastCamEngineLabel = "原生";
+            else if (gaze.engine === "skin") lastCamEngineLabel = "轻量";
+            updateCamButtonsUI(true, !!gaze.detected);
+          }
+        },
+        onStatus: (st) => {
+          if (!st) return;
+          if (st.engine === "mediapipe") lastCamEngineLabel = "MediaPipe";
+          else if (st.engine === "native") lastCamEngineLabel = "原生";
+          else if (st.engine === "skin") lastCamEngineLabel = "轻量";
+          if (camGazeActive && st.message) {
+            $("interimText").textContent = `📷 ${st.message}`;
+          }
+        },
+      });
+      return faceTracker;
+    }
+
+    function stopCameraGaze() {
+      camGazeActive = false;
+      if (faceTracker) faceTracker.stop();
+      avatar3d.setCameraGaze({ active: false, detected: false });
+      updateCamButtonsUI(false, false);
+    }
+
+    async function toggleCameraGaze() {
+      if (camStarting) return;
+      if (camGazeActive) {
+        stopCameraGaze();
+        $("interimText").textContent = "已关闭摄像头注视追踪。";
+        return;
+      }
+
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        const origin = location.origin;
+        const isHttp = location.protocol === "http:" && !["localhost", "127.0.0.1"].includes(location.hostname);
+        if (isHttp && isPrivateLanHost(location.hostname) && httpsInfo.enabled) {
+          const httpsUrl = getLanHttpsUrl();
+          const go = confirm(
+            `当前是内网 HTTP 地址（${origin}），手机浏览器会拦截摄像头权限。\n\n是否立即跳转到内置的安全 HTTPS 地址：\n${httpsUrl}\n\n（首次打开点「高级 → 继续前往」即可同时使用手机摄像头与麦克风！）`
+          );
+          if (go) location.href = httpsUrl;
+          return;
+        }
+        alert(
+          isHttp
+            ? `浏览器限制非 HTTPS 页面调用摄像头。请使用 HTTPS 地址访问（内网：https://${location.hostname}:${httpsInfo.port || 8766}/）。`
+            : "当前浏览器环境不支持调用摄像头，请使用手机系统浏览器（Safari / Chrome / Edge）打开。"
+        );
+        return;
+      }
+
+      // 若当前在 2D 模式，开启“看向我”时自动切回 3D 形象舞台
+      if (speakMode !== "3d") {
+        speakMode = "3d";
+        updateModeUI();
+      }
+
+      camStarting = true;
+      $("btnStageCam").textContent = "📷 启动中...";
+      $("btnCamGaze").textContent = "⏳ 正在开启摄像头...";
+      $("interimText").textContent = "📷 正在请求摄像头权限，请允许访问前置摄像头...";
+
+      try {
+        const tracker = await ensureFaceTracker();
+        const res = await tracker.start();
+        camGazeActive = true;
+        // 前置摄像头默认开启水平镜像，后置摄像头默认关闭镜像
+        $("chkCamMirror").checked = res.facingMode !== "environment";
+        syncCameraPreviewMirrorUI();
+        syncCameraPreviewCollapsedUI();
+        updateCamButtonsUI(true, false);
+        $("interimText").textContent = "📷 摄像头已开启！画面仅在手机本地推理不上传，移动头部即可看到 3D 形象实时看向你。";
+      } catch (err) {
+        camGazeActive = false;
+        updateCamButtonsUI(false, false);
+        let tip = err?.message || "摄像头启动失败";
+        if (err?.name === "NotAllowedError" || err?.name === "PermissionDeniedError") {
+          tip = "摄像头权限被拒绝，请在手机浏览器地址栏/系统设置中允许访问摄像头后重试。";
+        } else if (err?.name === "NotFoundError" || err?.name === "DevicesNotFoundError") {
+          tip = "未检测到可用摄像头设备。";
+        } else if (err?.name === "NotReadableError") {
+          tip = "摄像头正被其他应用占用，请关闭其他相机应用后重试。";
+        }
+        $("interimText").textContent = `摄像头开启失败：${tip}`;
+        alert("无法开启摄像头注视追踪：" + tip);
+      } finally {
+        camStarting = false;
+      }
+    }
+
+    async function switchCameraFacing() {
+      if (!faceTracker) return;
+      try {
+        const res = await faceTracker.switchCamera();
+        $("chkCamMirror").checked = !!res.mirrorX;
+        syncCameraPreviewMirrorUI();
+        $("interimText").textContent =
+          res.facingMode === "environment" ? "📷 已切换为后置摄像头" : "📷 已切换为前置摄像头";
+      } catch (err) {
+        $("interimText").textContent = "切换摄像头失败：" + (err?.message || "设备可能仅有一个摄像头");
+      }
+    }
+
+    $("btnStageCam").addEventListener("click", toggleCameraGaze);
+    $("btnCamGaze").addEventListener("click", toggleCameraGaze);
+    $("btnPipClose").addEventListener("click", (e) => { e.stopPropagation(); stopCameraGaze(); });
+    $("btnPipFlip").addEventListener("click", (e) => { e.stopPropagation(); switchCameraFacing(); });
+    $("btnFlipCamera").addEventListener("click", () => {
+      if (!camGazeActive) toggleCameraGaze();
+      else switchCameraFacing();
+    });
+    $("btnPipCollapse").addEventListener("click", (e) => {
+      e.stopPropagation();
+      camPipCollapsed = true;
+      syncCameraPreviewCollapsedUI();
+    });
+    $("btnPipExpand").addEventListener("click", (e) => {
+      e.stopPropagation();
+      camPipCollapsed = false;
+      syncCameraPreviewCollapsedUI();
+    });
+    $("chkCamPreview").addEventListener("change", () => {
+      camPipCollapsed = !$("chkCamPreview").checked;
+      syncCameraPreviewCollapsedUI();
+    });
+    $("chkCamMirror").addEventListener("change", syncCameraPreviewMirrorUI);
+    $("selCamSensitivity").addEventListener("change", () => {
+      const v = $("selCamSensitivity").value;
+      localStorage.setItem("avatar_cam_sens", v);
+      if (faceTracker) faceTracker.setSensitivity(parseFloat(v));
+    });
+    window.addEventListener("pagehide", () => {
+      if (camGazeActive) stopCameraGaze();
     });
 
     updateModeUI();

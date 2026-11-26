@@ -78,13 +78,29 @@ export class Avatar3DEngine {
     this.blinkPhase = 0;
     this.doubleBlinkQueued = false;
 
-    // 视线追踪 + 认知视线偏移
+    // 视线追踪 + 认知视线偏移 + 摄像头实时人脸注视追踪
     this.pointer = { x: 0, y: 0 };
     this.smoothPointer = { x: 0, y: 0 };
     this.saccadeTarget = { x: 0, y: 0 };
     this.saccadeCurrent = { x: 0, y: 0 };
     this.saccadeTimer = 1.5;
     this.lookAtObj = new THREE.Object3D();
+    this.cameraGaze = {
+      active: false,
+      detected: false,
+      x: 0,
+      y: 0,
+      proximity: 0.35,
+      roll: 0,
+      weight: 0,
+      smoothX: 0,
+      smoothY: 0,
+      smoothProx: 0.35,
+      smoothRoll: 0,
+    };
+    this._camRight = new THREE.Vector3();
+    this._camUp = new THREE.Vector3();
+    this._camForward = new THREE.Vector3();
 
     // 音频实时分析器
     this.audioCtx = null;
@@ -372,6 +388,23 @@ export class Avatar3DEngine {
     this.camera.position.copy(this.defaultCamPos);
     this.controls.target.copy(this.defaultTarget);
     this.controls.update();
+  }
+
+  /** 接收手机/桌面摄像头实时人脸注视坐标（x/y ∈ [-1, 1]，proximity ∈ [0, 1]） */
+  setCameraGaze(gaze) {
+    if (!gaze || !gaze.active) {
+      this.cameraGaze.active = false;
+      this.cameraGaze.detected = false;
+      return;
+    }
+    this.cameraGaze.active = true;
+    this.cameraGaze.detected = !!gaze.detected;
+    if (gaze.detected) {
+      this.cameraGaze.x = Math.max(-1, Math.min(1, Number(gaze.x) || 0));
+      this.cameraGaze.y = Math.max(-1, Math.min(1, Number(gaze.y) || 0));
+      this.cameraGaze.proximity = Math.max(0, Math.min(1, Number(gaze.proximity) || 0.35));
+      this.cameraGaze.roll = Math.max(-0.45, Math.min(0.45, Number(gaze.roll) || 0));
+    }
   }
 
   setState(nextState) {
@@ -748,14 +781,30 @@ export class Avatar3DEngine {
     this.smoothPointer.x += (this.pointer.x - this.smoothPointer.x) * Math.min(1, dt * 5);
     this.smoothPointer.y += (this.pointer.y - this.smoothPointer.y) * Math.min(1, dt * 5);
 
-    const gazeAway = activeAct?.face?.gazeAway || (this.state === "thinking" ? 1 : 0);
+    // 摄像头注视追踪平滑权重（检测到人脸快速锁定，离框/关闭柔和回正）
+    const targetWeight = (this.cameraGaze.active && this.cameraGaze.detected) ? 1.0 : 0.0;
+    const weightRate = targetWeight > this.cameraGaze.weight ? 6.5 : 2.2;
+    this.cameraGaze.weight += (targetWeight - this.cameraGaze.weight) * Math.min(1, dt * weightRate);
+
+    const camTargetX = targetWeight > 0 ? this.cameraGaze.x : 0;
+    const camTargetY = targetWeight > 0 ? this.cameraGaze.y : 0;
+    const camTargetRoll = targetWeight > 0 ? this.cameraGaze.roll : 0;
+    const camTargetProx = targetWeight > 0 ? this.cameraGaze.proximity : 0.35;
+    const followRate = Math.min(1, dt * 11);
+    this.cameraGaze.smoothX += (camTargetX - this.cameraGaze.smoothX) * followRate;
+    this.cameraGaze.smoothY += (camTargetY - this.cameraGaze.smoothY) * followRate;
+    this.cameraGaze.smoothRoll += (camTargetRoll - this.cameraGaze.smoothRoll) * Math.min(1, dt * 6);
+    this.cameraGaze.smoothProx += (camTargetProx - this.cameraGaze.smoothProx) * Math.min(1, dt * 5);
+
+    const w = this.cameraGaze.weight;
+    const gazeAway = (activeAct?.face?.gazeAway || (this.state === "thinking" ? 1 : 0)) * (1 - 0.55 * w);
     this.saccadeTimer -= dt;
     if (this.saccadeTimer <= 0) {
-      this.saccadeTimer = gazeAway ? (0.9 + Math.random() * 1.1) : (1.5 + Math.random() * 2.4);
-      if (gazeAway) {
+      this.saccadeTimer = gazeAway > 0.35 ? (0.9 + Math.random() * 1.1) : (1.5 + Math.random() * 2.4);
+      if (gazeAway > 0.35) {
         // 思考/组织语言时自然向斜上方短暂移开视线（真实人类认知眼神！）
-        this.saccadeTarget.x = 0.24 + (Math.random() - 0.5) * 0.12;
-        this.saccadeTarget.y = 0.16 + (Math.random() - 0.5) * 0.08;
+        this.saccadeTarget.x = (0.24 + (Math.random() - 0.5) * 0.12) * gazeAway;
+        this.saccadeTarget.y = (0.16 + (Math.random() - 0.5) * 0.08) * gazeAway;
       } else {
         // 说话强调与倾听时回到柔和眼神交流 + 极细微生理扫视
         this.saccadeTarget.x = (Math.random() - 0.5) * 0.14;
@@ -765,11 +814,23 @@ export class Avatar3DEngine {
     this.saccadeCurrent.x += (this.saccadeTarget.x - this.saccadeCurrent.x) * Math.min(1, dt * 8);
     this.saccadeCurrent.y += (this.saccadeTarget.y - this.saccadeCurrent.y) * Math.min(1, dt * 8);
 
-    this.lookAtObj.position.set(
-      this.camera.position.x + this.smoothPointer.x * 0.50 + this.saccadeCurrent.x,
-      this.camera.position.y + this.smoothPointer.y * 0.32 + this.saccadeCurrent.y,
-      this.camera.position.z
-    );
+    const gx = this.smoothPointer.x * (1 - w) + this.cameraGaze.smoothX * w;
+    const gy = this.smoothPointer.y * (1 - w) + this.cameraGaze.smoothY * w;
+    const spanX = 0.50 + 0.78 * w;
+    const spanY = 0.32 + 0.56 * w;
+    const sacScale = 1 - 0.72 * w;
+    const depthPull = w * (this.cameraGaze.smoothProx - 0.35) * 0.25;
+
+    this.camera.updateMatrixWorld();
+    this._camRight.setFromMatrixColumn(this.camera.matrixWorld, 0).normalize();
+    this._camUp.setFromMatrixColumn(this.camera.matrixWorld, 1).normalize();
+    this._camForward.setFromMatrixColumn(this.camera.matrixWorld, 2).normalize();
+
+    this.lookAtObj.position
+      .copy(this.camera.position)
+      .addScaledVector(this._camRight, gx * spanX + this.saccadeCurrent.x * sacScale)
+      .addScaledVector(this._camUp, gy * spanY + this.saccadeCurrent.y * sacScale)
+      .addScaledVector(this._camForward, -depthPull);
   }
 
   _updateBiomechanics(dt, activeAct) {
@@ -785,15 +846,25 @@ export class Avatar3DEngine {
     const organicX = Math.sin(t * 0.61) * 0.6 + Math.sin(t * 0.99) * 0.4;
     const organicZ = Math.sin(t * 0.47) * 0.65 + Math.sin(t * 1.13) * 0.35;
 
-    let hips = [0, 0.02 * organicX, 0.012 * organicZ];
-    let spine = [0.016 * breath, 0.022 * organicX, 0.016 * organicZ];
-    let chest = [0.022 * breath, 0.025 * Math.sin(t * 0.41), -0.01 * organicZ];
+    const w = this.cameraGaze.weight;
+    const pitchSign = this.vrm?.meta?.metaVersion === "1" ? -1 : 1;
+    const camX = this.cameraGaze.smoothX;
+    const camY = this.cameraGaze.smoothY;
+    const camRoll = this.cameraGaze.smoothRoll;
+    const idleDriftScale = 1 - 0.65 * w;
 
-    // 头部基础微动 + 语音重音自然轻点（pitchAccent 越大，在重读字上越自然轻点下巴）
+    let hips = [0, 0.02 * organicX * idleDriftScale, 0.012 * organicZ];
+    let spine = [0.016 * breath, 0.022 * organicX * idleDriftScale + camX * 0.055 * w, 0.016 * organicZ];
+    let chest = [0.022 * breath, 0.025 * Math.sin(t * 0.41) * idleDriftScale + camX * 0.105 * w, -0.01 * organicZ];
+
+    // 头部基础微动 + 语音重音自然轻点 + 摄像头人脸注视（眼神/头颈/上胸自然协同转向用户）
     const speechNod = this.state === "speaking" ? (-this.pitchAccent * 0.095 - this.voiceEnergy * 0.035 * Math.sin(t * 5.4)) : 0;
-    let headPitch = 0.018 * Math.sin(t * 1.05) + this.smoothPointer.y * 0.08 + speechNod;
-    let headYaw = 0.045 * organicX + this.smoothPointer.x * 0.16;
-    let headRoll = 0.03 * organicZ;
+    const trackYaw = this.smoothPointer.x * 0.16 * (1 - w) + camX * 0.42 * w;
+    const trackPitch = pitchSign * (this.smoothPointer.y * 0.08 * (1 - w) + camY * 0.27 * w);
+    const trackRoll = camRoll * 0.12 * w;
+    let headPitch = 0.018 * Math.sin(t * 1.05) + trackPitch + speechNod;
+    let headYaw = 0.045 * organicX * idleDriftScale + trackYaw;
+    let headRoll = 0.03 * organicZ * idleDriftScale + trackRoll;
 
     // 默认自然放松双臂
     const basePose = {
