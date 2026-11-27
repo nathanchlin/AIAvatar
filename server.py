@@ -55,6 +55,11 @@ VRM_DIR = ASSETS_DIR / "vrm"
 STATIC_DIR = BASE_DIR / "static"
 MODELS_DIR = BASE_DIR / "models"
 DOCS_STORE_PATH = ASSETS_DIR / "docs_store.json"
+GROUP_CHARS_PATH = ASSETS_DIR / "group_characters.json"
+
+from group_chat import GroupCharacterStore, stream_group_conversation
+
+group_store = GroupCharacterStore(GROUP_CHARS_PATH)
 
 ASSETS_DIR.mkdir(parents=True, exist_ok=True)
 CLIPS_DIR.mkdir(parents=True, exist_ok=True)
@@ -111,7 +116,12 @@ KOKORO_VOICE_MAP = {
     "zh-CN-XiaoyiNeural": 50,
     "zh-CN-XiaoxiaoNeural": 46,
     "zh-CN-XiaohanNeural": 54,
+    "zh-CN-liaoning-XiaobeiNeural": 48,
+    "zh-CN-shaanxi-XiaoniNeural": 52,
     "zh-CN-YunxiNeural": 92,
+    "zh-CN-YunjianNeural": 96,
+    "zh-CN-YunyangNeural": 94,
+    "zh-CN-YunxiaNeural": 90,
 }
 
 class SmartGZipMiddleware(GZipMiddleware):
@@ -252,9 +262,13 @@ def _is_pinyin_self_echo(
     clean = re.sub(r"[^\u4e00-\u9fffa-zA-Z0-9]", "", asr_text or "")
     if not clean:
         return True
-    # 明确打断词或唤醒词一律放行
-    if re.match(r"^(停|停一下|等一下|等等|别说了|打住|先停|暂停|小汐|小希|听我说|问一下|换一个|不对)", clean):
+    # 明确打断词或唤醒词（含群聊角色名）一律放行
+    if re.match(r"^(停|停一下|等一下|等等|别说了|打住|先停|暂停|小汐|小希|林澈|薇薇|维多利亚|顾沉|大家|你们|听我说|问一下|换一个|不对)", clean):
         return False
+    for _ch in group_store.list_all():
+        _cname = re.sub(r"[^\u4e00-\u9fffa-zA-Z0-9]", "", str(_ch.get("name") or ""))
+        if len(_cname) >= 2 and clean.startswith(_cname):
+            return False
     # 仅在角色正播报期间忽略单字杂音；播报结束后放行所有 2 字及以上的正常回复（如“好的”“继续”“谢谢”）
     if during_speaking and len(clean) <= 1:
         return True
@@ -423,8 +437,40 @@ class TTSRequest(BaseModel):
     text: str
     voice: str = DEFAULT_VOICE
     engine: str = "auto"  # "auto" | "edge" | "kokoro" | "sapi" | "custom"
+    rate: str = "+2%"
+    pitch: str = "+0Hz"
     custom_tts_url: str = ""
     custom_api_key: str = ""
+
+
+class GroupCharacterUpsertRequest(BaseModel):
+    id: str = ""
+    name: str
+    role: str = "群聊成员"
+    vrm_url: str = "/assets/vrm/AvatarSample_A.vrm"
+    voice: str = "zh-CN-XiaoyiNeural"
+    rate: str = "+0%"
+    pitch: str = "+0Hz"
+    color: str = "#60a5fa"
+    enabled: bool = True
+    personality: str = "性格鲜明、表达自然的群聊伙伴。"
+    style_tags: list[str] = []
+    default_emotion: str = "relaxed"
+    default_gesture: str = "nod_agree"
+
+
+class GroupChatRequest(BaseModel):
+    text: str = ""
+    history: list[dict[str, Any]] = []
+    character_ids: list[str] = []
+    group_mode: str = "free"  # "free" | "brainstorm" | "debate" | "docs"
+    speaker_budget: int = 3
+    continue_only: bool = False
+    llm_url: str = DEFAULT_LLM_URL
+    llm_model: str = DEFAULT_LLM_MODEL
+    api_key: str = ""
+    use_docs: bool = True
+    web_search: str = "auto"
 
 
 class LipSyncRequest(BaseModel):
@@ -668,12 +714,20 @@ def _get_edge_semaphore() -> asyncio.Semaphore:
     return sem
 
 
-def _kokoro_synthesize_wav(text: str, voice: str = DEFAULT_VOICE) -> bytes:
+def _parse_rate_to_speed(rate: str) -> float:
+    m = re.match(r"^\s*([+-]?\d+(?:\.\d+)?)%\s*$", rate or "")
+    if not m:
+        return 1.0
+    return max(0.75, min(1.35, 1.0 + float(m.group(1)) / 100.0))
+
+
+def _kokoro_synthesize_wav(text: str, voice: str = DEFAULT_VOICE, rate: str = "+0%") -> bytes:
     tts = get_kokoro_tts()
     sid = KOKORO_VOICE_MAP.get(voice, 50)
     if sid >= tts.num_speakers:
         sid = min(50, max(0, tts.num_speakers - 1))
-    audio = tts.generate(text, sid=sid, speed=1.0)
+    speed = _parse_rate_to_speed(rate)
+    audio = tts.generate(text, sid=sid, speed=speed)
     samples = np.array(audio.samples, dtype=np.float32)
     # 响度归一化 + 柔和防削波，确保万一离线降级到 Kokoro 时音量与清晰度稳定
     if len(samples) > 0:
@@ -728,6 +782,8 @@ async def synthesize_tts_with_marks(
     text: str,
     voice: str = DEFAULT_VOICE,
     engine: str = "auto",
+    rate: str = "+2%",
+    pitch: str = "+0Hz",
     custom_tts_url: str = "",
     custom_api_key: str = "",
 ) -> tuple[bytes, str, str, list[dict[str, Any]]]:
@@ -736,6 +792,8 @@ async def synthesize_tts_with_marks(
     text = sanitize_for_tts(text)
     if not text:
         raise ValueError("empty text")
+    safe_rate = rate.strip() if re.match(r"^[+-]\d+%$", (rate or "").strip()) else "+2%"
+    safe_pitch = pitch.strip() if re.match(r"^[+-]\d+Hz$", (pitch or "").strip()) else "+0Hz"
 
     if engine == "custom" and custom_tts_url.strip():
         url = custom_tts_url.strip()
@@ -776,8 +834,8 @@ async def synthesize_tts_with_marks(
                         comm = edge_tts.Communicate(
                             text=text,
                             voice=voice or DEFAULT_VOICE,
-                            rate="+2%",
-                            pitch="+0Hz",
+                            rate=safe_rate,
+                            pitch=safe_pitch,
                             boundary="WordBoundary",
                             proxy=attempt_proxy,
                             connect_timeout=8,
@@ -818,7 +876,7 @@ async def synthesize_tts_with_marks(
     if engine in ("auto", "kokoro") and _has_kokoro():
         try:
             print(f"[TTS] using kokoro-local (engine={engine})", flush=True)
-            wav_bytes = await asyncio.to_thread(_kokoro_synthesize_wav, text, voice)
+            wav_bytes = await asyncio.to_thread(_kokoro_synthesize_wav, text, voice, safe_rate)
             return wav_bytes, "audio/wav", "kokoro-local", []
         except Exception as exc:
             if engine == "kokoro":
@@ -835,11 +893,19 @@ async def synthesize_tts_audio(
     text: str,
     voice: str = DEFAULT_VOICE,
     engine: str = "auto",
+    rate: str = "+2%",
+    pitch: str = "+0Hz",
     custom_tts_url: str = "",
     custom_api_key: str = "",
 ) -> tuple[bytes, str, str]:
     audio_bytes, media_type, eng, _ = await synthesize_tts_with_marks(
-        text, voice=voice, engine=engine, custom_tts_url=custom_tts_url, custom_api_key=custom_api_key
+        text,
+        voice=voice,
+        engine=engine,
+        rate=rate,
+        pitch=pitch,
+        custom_tts_url=custom_tts_url,
+        custom_api_key=custom_api_key,
     )
     return audio_bytes, media_type, eng
 
@@ -1918,6 +1984,8 @@ async def api_tts(req: TTSRequest) -> Response:
             req.text,
             voice=req.voice,
             engine=req.engine,
+            rate=req.rate,
+            pitch=req.pitch,
             custom_tts_url=req.custom_tts_url,
             custom_api_key=req.custom_api_key,
         )
@@ -1937,6 +2005,8 @@ async def api_tts_speech(req: TTSRequest) -> dict[str, Any]:
             clean_txt,
             voice=req.voice,
             engine=req.engine,
+            rate=req.rate,
+            pitch=req.pitch,
             custom_tts_url=req.custom_tts_url,
             custom_api_key=req.custom_api_key,
         )
@@ -1956,6 +2026,96 @@ async def api_tts_speech(req: TTSRequest) -> dict[str, Any]:
         }
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"TTS 与动作编排合成失败: {exc}") from exc
+
+
+@app.get("/api/group/characters")
+async def api_group_characters_list() -> dict[str, Any]:
+    return {"characters": group_store.list_all()}
+
+
+@app.post("/api/group/characters")
+async def api_group_characters_upsert(req: GroupCharacterUpsertRequest) -> dict[str, Any]:
+    saved = group_store.upsert(req.model_dump())
+    return {"ok": True, "character": saved, "characters": group_store.list_all()}
+
+
+@app.delete("/api/group/characters/{char_id}")
+async def api_group_characters_delete(char_id: str) -> dict[str, Any]:
+    ok = group_store.delete(char_id)
+    if not ok:
+        raise HTTPException(status_code=400, detail="群聊至少保留 2 位角色，或该角色不存在")
+    return {"ok": True, "characters": group_store.list_all()}
+
+
+@app.post("/api/group/characters/reset")
+async def api_group_characters_reset() -> dict[str, Any]:
+    chars = group_store.reset_defaults()
+    return {"ok": True, "characters": chars}
+
+
+@app.post("/api/group/stream")
+async def api_group_stream(req: GroupChatRequest) -> StreamingResponse:
+    """多角色 3D 群聊 SSE 流：统一接收用户发言 -> 全员差异化即时反应 -> 逐角色独立人设流式接话互怼。"""
+    user_msg = req.text.strip()
+    if not req.continue_only and not user_msg:
+        raise HTTPException(status_code=400, detail="empty text")
+
+    active_chars = group_store.get_active(req.character_ids or None)
+    llm_url, llm_model, is_local = _resolve_llm_target(req.llm_url, req.llm_model)
+    disable_reasoning = _should_disable_reasoning(llm_url, llm_model, is_local)
+
+    with _docs_lock:
+        has_active_docs = any(d.get("enabled", True) and d.get("content") for d in _docs_store)
+    need_web = (not req.continue_only) and should_trigger_web_search(user_msg, req.web_search, has_active_docs)
+
+    async def event_gen() -> AsyncIterator[str]:
+        web_results: list[dict[str, str]] = []
+        if need_web:
+            yield f"data: {json.dumps({'type': 'searching', 'query': user_msg}, ensure_ascii=False)}\n\n"
+            web_results = await asyncio.to_thread(web_search_realtime, user_msg, 4)
+
+        docs_context = ""
+        used_docs: list[str] = []
+        query_for_docs = user_msg or (
+            str(req.history[-1].get("content", "")) if req.history else ""
+        )
+        mentions_docs = req.group_mode == "docs" or bool(
+            re.search(r"资料|文档|文件|报告|上面|这段|大纲|里面|结合", query_for_docs)
+        )
+        if req.use_docs and (not web_results or mentions_docs):
+            docs_context, used_docs = build_docs_context(query_for_docs, max_chars=2400)
+
+        async for chunk in stream_group_conversation(
+            user_text=user_msg,
+            history=req.history,
+            active_chars=active_chars,
+            group_mode=req.group_mode,
+            speaker_budget=max(1, min(4, int(req.speaker_budget or 3))),
+            continue_only=req.continue_only,
+            llm_url=llm_url,
+            llm_model=llm_model,
+            api_key=req.api_key,
+            is_local=is_local,
+            disable_reasoning=disable_reasoning,
+            docs_context=docs_context,
+            used_docs=used_docs,
+            web_results=web_results,
+            sanitize_fn=sanitize_for_tts,
+            clean_fn=clean_spoken_text,
+            detect_emo_fn=detect_emotion_and_gesture,
+            extract_reasoning_fallback_fn=_extract_fallback_from_reasoning,
+        ):
+            yield chunk
+
+    return StreamingResponse(
+        event_gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.post("/api/lipsync")

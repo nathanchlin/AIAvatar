@@ -637,6 +637,241 @@
 
     #btnMobileImmersive { display: none; }
 
+    /* 多角色 3D 群聊样式 */
+    .room-mode-switch {
+      display: inline-flex;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(96, 165, 250, 0.35);
+      border-radius: 999px;
+      padding: 3px;
+      gap: 3px;
+    }
+    .room-mode-switch button {
+      border: none;
+      background: transparent;
+      color: var(--muted);
+      padding: 5px 12px;
+      font-size: 12px;
+      font-weight: 700;
+      border-radius: 999px;
+    }
+    .room-mode-switch button.selected {
+      background: linear-gradient(135deg, #2563eb, #7c3aed);
+      color: #fff;
+      box-shadow: 0 2px 10px rgba(99, 102, 241, 0.45);
+    }
+
+    .group-nameplates-layer {
+      position: absolute;
+      inset: 0;
+      z-index: 9;
+      pointer-events: none;
+      overflow: hidden;
+      display: none;
+    }
+    .group-nameplates-layer.active { display: block; }
+    .actor-plate {
+      position: absolute;
+      left: 0;
+      top: 0;
+      transform: translate3d(-999px, -999px, 0) translate(-50%, -100%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      pointer-events: auto;
+      cursor: pointer;
+      will-change: transform;
+      user-select: none;
+    }
+    .actor-reaction-bubble {
+      padding: 3px 9px;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, 0.90);
+      border: 1px solid rgba(255, 255, 255, 0.22);
+      color: #f8fafc;
+      font-size: 11px;
+      font-weight: 600;
+      white-space: nowrap;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+      opacity: 0;
+      transform: translateY(4px) scale(0.92);
+      transition: opacity 0.22s ease, transform 0.22s ease;
+      pointer-events: none;
+    }
+    .actor-reaction-bubble.show {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+    .actor-name-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 10px;
+      border-radius: 999px;
+      background: rgba(10, 14, 24, 0.78);
+      backdrop-filter: blur(8px);
+      border: 1.5px solid rgba(255, 255, 255, 0.16);
+      color: #e2e8f0;
+      font-size: 11.5px;
+      font-weight: 700;
+      white-space: nowrap;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+    }
+    .actor-name-pill:hover {
+      background: rgba(30, 41, 59, 0.92);
+      transform: translateY(-1px);
+    }
+    .actor-plate.speaking .actor-name-pill {
+      background: rgba(15, 23, 42, 0.94);
+      border-color: var(--actor-color, #60a5fa);
+      box-shadow: 0 0 14px var(--actor-color, rgba(96, 165, 250, 0.65));
+      color: #fff;
+    }
+    .actor-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--actor-color, #60a5fa);
+      flex-shrink: 0;
+    }
+    .actor-plate.speaking .actor-dot {
+      animation: speakerPulse 0.9s infinite ease-in-out;
+    }
+    .actor-role-tag {
+      font-size: 10px;
+      font-weight: 500;
+      color: #94a3b8;
+    }
+    @keyframes speakerPulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.45); opacity: 0.65; }
+    }
+
+    .group-bar {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+      padding-top: 6px;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .group-bar.active { display: flex; }
+    .group-bar select { width: auto; padding: 5px 8px; font-size: 12px; }
+
+    .group-roster-card {
+      display: none;
+      background: var(--panel);
+      border: 1px solid rgba(96, 165, 250, 0.28);
+      border-radius: 14px;
+      padding: 12px 14px;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .group-roster-card.open { display: flex; }
+    .roster-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(195px, 1fr));
+      gap: 8px;
+    }
+    .roster-item {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 9px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 12px;
+    }
+    .roster-item.enabled {
+      border-color: var(--actor-color, rgba(96, 165, 250, 0.55));
+      background: rgba(37, 99, 235, 0.09);
+    }
+    .roster-item-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+    }
+    .roster-item-name {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-weight: 700;
+      color: #f1f5f9;
+    }
+    .roster-item-desc {
+      font-size: 11px;
+      color: var(--muted);
+      line-height: 1.4;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .char-editor-form {
+      display: none;
+      flex-direction: column;
+      gap: 8px;
+      padding: 10px;
+      border-radius: 12px;
+      background: rgba(8, 12, 22, 0.72);
+      border: 1px solid rgba(96, 165, 250, 0.35);
+    }
+    .char-editor-form.open { display: flex; }
+    .char-editor-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .msg.group-speaker {
+      border-left: 3px solid var(--speaker-color, #60a5fa);
+    }
+    .msg-speaker-head {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11.5px;
+      font-weight: 700;
+      color: #f8fafc;
+    }
+    .msg-speaker-target {
+      font-weight: 500;
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .reaction-strip {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      align-self: flex-start;
+      max-width: 96%;
+    }
+    .reaction-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: #cbd5e1;
+    }
+    .subtitle-speaker-tag {
+      display: inline-block;
+      margin-right: 6px;
+      padding: 1px 7px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      color: #fff;
+      vertical-align: 1px;
+    }
+
     /* 手机竖屏专属适配：最大化 3D 虚拟形象画幅，紧凑单手触控栏，聊天框紧随其后 */
     @media (max-width: 768px) {
       body { min-height: 100dvh; }
@@ -762,7 +997,11 @@
   <header>
     <div class="brand">
       <span class="dot"></span>
-      <span>小汐 · 3D 实时语音虚拟人像 &amp; 资料沟通</span>
+      <span id="brandTitle">小汐 · 3D 实时语音虚拟人像 &amp; 资料沟通</span>
+      <div class="room-mode-switch" role="group" aria-label="单人或群聊模式">
+        <button id="btnRoomSingle" class="selected" title="单人 1v1 虚拟人像对话">👤 单人</button>
+        <button id="btnRoomGroup" title="多位 3D 角色同台群聊，全员听见你并产生不同反应与互相接话">👥 多人群聊</button>
+      </div>
     </div>
     <div class="status-pills">
       <span class="pill ok" id="pill3d">Three.js 3D: 加载中...</span>
@@ -788,6 +1027,8 @@
         <div class="video-stage" id="videoStage">
           <!-- Three.js VRM 60fps 3D 实时人像舞台 -->
           <div class="stage-3d-wrap" id="stage3dWrap"></div>
+          <!-- 多角色 3D 群聊悬浮名牌与即时反应气泡层 -->
+          <div class="group-nameplates-layer" id="groupNameplatesLayer"></div>
 
           <!-- 2D MiniMax H3 视频底片与离线对口型层（3D 模式下延迟加载，不占用公网/内网隧道带宽） -->
           <img class="anchor-bg" id="anchorImg" src="/assets/anchor.png" alt="角色形象" />
@@ -911,7 +1152,88 @@
           </div>
         </div>
         <div class="toolbar-row">
-          <span class="small-note" id="interimText">已升级「毫秒级拼音双唇/复韵母对口型 + 逐词语义手势时间轴 + 独立眉毛/笑眼微表情 + 二阶弹簧骨骼动力学」！</span>
+          <span class="small-note" id="interimText">已升级「毫秒级拼音双唇/复韵母对口型 + 逐词语义手势时间轴 + 独立眉毛/笑眼微表情 + 多角色 3D 群聊舞台」！</span>
+        </div>
+        <div class="group-bar" id="groupBar">
+          <div class="btn-row" style="gap:6px;">
+            <button class="mini primary" id="btnGroupContinue" title="不需要你打字，让台上角色顺着当前话题自己再互怼/接话聊一轮">🔥 让TA们接着聊</button>
+            <select id="selGroupMode" title="切换群聊互动氛围">
+              <option value="free" selected>💬 自由群聊 (自然接话)</option>
+              <option value="brainstorm">💡 头脑风暴 (脑洞+挑刺)</option>
+              <option value="debate">⚡ 观点辩论 (针锋相对)</option>
+              <option value="docs">📚 资料研讨 (围绕文档)</option>
+            </select>
+            <select id="selGroupBudget" title="每轮发言人数">
+              <option value="3" selected>智能 2~3 人接话</option>
+              <option value="4">全员轮流表态</option>
+              <option value="2">轻快 2 人互动</option>
+            </select>
+          </div>
+          <div class="btn-row" style="gap:8px;">
+            <label class="small-note" style="display:flex;align-items:center;gap:4px;cursor:pointer;" title="开启后，每次你说完话且群友聊完一轮后，会自动自然续聊 1 轮互怼/延伸">
+              <input type="checkbox" id="chkGroupAutoBanter" /> 🔁 自动续聊
+            </label>
+            <button class="mini" id="btnToggleGroupRoster">🎭 角色管理 (<span id="lblActiveCount">3</span>人)</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="group-roster-card" id="groupRosterCard">
+        <div class="card-title">
+          <span>🎭 群聊成员与人设配置（勾选 2~4 位角色同台，点击舞台角色或名牌可 @点名）</span>
+          <div class="btn-row">
+            <button class="mini primary" id="btnAddGroupChar">＋ 新增角色</button>
+            <button class="mini" id="btnResetGroupChars">↺ 恢复默认</button>
+            <button class="mini" id="btnCloseRoster">收起</button>
+          </div>
+        </div>
+        <div class="roster-grid" id="rosterGrid"></div>
+        <div class="char-editor-form" id="charEditorForm">
+          <div class="card-title">
+            <span id="charEditorTitle">✏️ 编辑角色人设</span>
+            <button class="mini" id="btnCancelCharEdit">取消</button>
+          </div>
+          <input type="hidden" id="editCharId" />
+          <div class="char-editor-row">
+            <input type="text" id="editCharName" placeholder="角色名字（如：阿哲）" />
+            <input type="text" id="editCharRole" placeholder="角色定位（如：吐槽担当 / 温柔学姐）" />
+          </div>
+          <div class="char-editor-row">
+            <select id="editCharVrm"></select>
+            <select id="editCharVoice">
+              <option value="zh-CN-XiaoyiNeural">晓伊（活泼自然 · 女声）</option>
+              <option value="zh-CN-XiaoxiaoNeural">晓晓（温柔灵动 · 女声）</option>
+              <option value="zh-CN-YunxiNeural">云希（清爽青年 · 男声）</option>
+              <option value="zh-CN-YunjianNeural">云健（沉稳磁性 · 男声）</option>
+              <option value="zh-CN-YunyangNeural">云扬（理性清晰 · 男声）</option>
+              <option value="zh-CN-YunxiaNeural">云夏（活力少年 · 男声）</option>
+              <option value="zh-CN-liaoning-XiaobeiNeural">晓北（东北爽朗 · 女声）</option>
+              <option value="zh-CN-shaanxi-XiaoniNeural">晓妮（特色爽快 · 女声）</option>
+            </select>
+          </div>
+          <div class="char-editor-row">
+            <select id="editCharRate">
+              <option value="-6%">语速偏慢 (-6%)</option>
+              <option value="-3%">语速舒缓 (-3%)</option>
+              <option value="+0%" selected>语速正常 (+0%)</option>
+              <option value="+4%">语速轻快 (+4%)</option>
+              <option value="+8%">语速活泼 (+8%)</option>
+            </select>
+            <div style="display:flex;gap:6px;align-items:center;">
+              <select id="editCharPitch" style="flex:1;">
+                <option value="-5Hz">音调低沉 (-5Hz)</option>
+                <option value="-2Hz">音调略低 (-2Hz)</option>
+                <option value="+0Hz" selected>音调标准 (+0Hz)</option>
+                <option value="+3Hz">音调轻亮 (+3Hz)</option>
+                <option value="+6Hz">音调元气 (+6Hz)</option>
+              </select>
+              <input type="color" id="editCharColor" value="#60a5fa" style="width:36px;height:32px;border:none;background:none;cursor:pointer;" title="角色主题色" />
+            </div>
+          </div>
+          <textarea id="editCharPersona" rows="3" placeholder="详细人设与说话风格：TA 的性格、口癖、立场倾向、怎么和其他角色互动..."></textarea>
+          <div class="btn-row" style="justify-content:flex-end;">
+            <button class="mini primary" id="btnSaveCharEdit">💾 保存并应用到群舞台</button>
+          </div>
         </div>
       </div>
 
@@ -954,7 +1276,7 @@
     <aside class="side-col">
       <div class="card chat-card">
         <div class="card-title">
-          <span>💬 资料沟通对话</span>
+          <span id="chatCardTitle">💬 资料沟通对话</span>
           <button class="mini" id="btnClearChat">清空对话</button>
         </div>
         <div class="chat-log" id="chatLog"></div>
@@ -1449,18 +1771,46 @@
     let sharedPlaybackCtx = null;
     let avatar3dReady = false;
     let avatar3d = {
+      groupMode: false,
       setState() {},
       setEmotion() {},
       triggerGesture() {},
       resetCamera() {},
       setCameraGaze() {},
       setGazeCalibration() {},
+      setActiveSpeaker() {},
+      setActorReaction() {},
+      setNameplateCallback() {},
+      setOnActorClick() {},
       ensureAudioAnalyser() {},
       stopActiveAudio() {},
       async playAudioBufferBlob() { throw new Error("3d not ready"); },
+      async playAudioBufferBlobForActor() { throw new Error("3d not ready"); },
       attachAudioElement() {},
       detachAudio() {},
       async loadVRM() {},
+      async loadGroupAvatars() {},
+    };
+
+    // --- 多角色 3D 群聊核心状态 ---
+    let roomMode = localStorage.getItem("avatar_room_mode") || "single"; // "single" | "group"
+    let groupCharacters = [];
+    let groupHistory = [];
+    let groupNameplateEls = new Map();
+    let groupStageSignature = "";
+    let groupStageLoading = false;
+    let groupAutoBanterTimer = null;
+    const VRM_LABELS = {
+      "AvatarSample_B.vrm": "小汐 · 紫发潮流 (默认)",
+      "AvatarSample_A.vrm": "元气校园 · 女生 (Sample A)",
+      "AvatarSample_C.vrm": "清爽少年 · 男生 (Sample C)",
+      "Victoria_Rubin.vrm": "维多利亚 · 金发时尚",
+      "Sakurada_Fumiriya.vrm": "樱田文梨耶 · 甜美长发",
+      "Sendagaya_Shino.vrm": "千駄谷筱 · 黑发日系",
+      "Vita.vrm": "维塔 · 干练短发",
+      "Vivi.vrm": "薇薇 · 活力少女",
+      "Sendagaya_Shibu.vrm": "千駄谷涩 · 阳光男生",
+      "Seed-san.vrm": "Seed-san · VRM 官方形象",
     };
 
     // 在用户点击/触摸的同步手势中立即解锁录音与播放 AudioContext（解决 iOS Safari / Android 手机无声与不收音问题）
@@ -1499,12 +1849,14 @@
     async function initAvatar3DEngine() {
       try {
         $("pill3d").textContent = "Three.js 3D: 正在加载引擎...";
-        const mod = await import("/static/avatar3d.js?v=10");
+        const mod = await import("/static/avatar3d.js?v=12");
         avatar3d = new mod.Avatar3DEngine($("stage3dWrap"), (statusText) => {
           $("pill3d").textContent = `Three.js 3D: ${statusText}`;
           if (statusText.includes("就绪")) $("pill3d").className = "pill ok";
         });
         avatar3d.setGazeCalibration({ offsetX: gazeOffsetX, offsetY: gazeOffsetY });
+        avatar3d.setNameplateCallback(updateGroupNameplates);
+        avatar3d.setOnActorClick((actorId) => handleActorMentionClick(actorId));
         if (sharedPlaybackCtx) {
           avatar3d.audioCtx = sharedPlaybackCtx;
           avatar3d.analyser = sharedPlaybackCtx.createAnalyser();
@@ -1517,6 +1869,9 @@
         }
         avatar3dReady = true;
         await loadVrmList();
+        if (roomMode === "group") {
+          await syncGroupStageAvatars({ force: true });
+        }
       } catch (e) {
         $("pill3d").textContent = "Three.js 3D: 已降级 2D 模式";
         $("pill3d").className = "pill warn";
@@ -1541,9 +1896,11 @@
         models.forEach((m) => {
           const opt = document.createElement("option");
           opt.value = m.url;
-          opt.textContent = `${m.name.replace(/\.vrm$/i, "")} (${m.size_mb}MB)`;
+          const label = VRM_LABELS[m.name] || m.name.replace(/\.vrm$/i, "");
+          opt.textContent = `${label} (${m.size_mb}MB)`;
           sel.appendChild(opt);
         });
+        populateEditCharVrmOptions();
         const targetUrl = selectUrl || localStorage.getItem("avatar_vrm_url") || (models[0] && models[0].url);
         if (targetUrl) {
           sel.value = targetUrl;
@@ -1551,7 +1908,9 @@
           if (sel.value && avatar3dReady) {
             localStorage.setItem("avatar_vrm_url", sel.value);
             await refreshCacheStatusUI();
-            await loadVrmWithCache(sel.value);
+            if (roomMode !== "group") {
+              await loadVrmWithCache(sel.value);
+            }
           }
         }
       } catch (e) {
@@ -1669,10 +2028,22 @@
       return out;
     }
 
-    function renderSubtitleText(str) {
+    function renderSubtitleText(str, speakerMeta = null) {
       const el = $("subtitleText");
-      if (el.textContent === (str || "")) return;
-      el.textContent = str || "";
+      const cacheKey = (speakerMeta ? `${speakerMeta.name}|` : "") + (str || "");
+      if (el.dataset.lastKey === cacheKey) return;
+      el.dataset.lastKey = cacheKey;
+      el.textContent = "";
+      if (str) {
+        if (speakerMeta && speakerMeta.name) {
+          const tag = document.createElement("span");
+          tag.className = "subtitle-speaker-tag";
+          tag.textContent = speakerMeta.name;
+          tag.style.background = speakerMeta.color || "#3b82f6";
+          el.appendChild(tag);
+        }
+        el.appendChild(document.createTextNode(str));
+      }
       el.classList.remove("pop");
       if (str) {
         void el.offsetWidth;
@@ -1680,7 +2051,7 @@
       }
     }
 
-    function setSubtitle(text, durationSec = 0) {
+    function setSubtitle(text, durationSec = 0, speakerMeta = null) {
       clearInterval(subtitleRollTimer);
       clearTimeout(subtitleClearTimer);
       subtitleRollTimer = null;
@@ -1688,10 +2059,10 @@
 
       const pages = splitCaptionClauses(text, 24);
       if (!pages.length) {
-        renderSubtitleText("");
+        renderSubtitleText("", null);
         return;
       }
-      renderSubtitleText(pages[0]);
+      renderSubtitleText(pages[0], speakerMeta);
       if (pages.length === 1) return;
 
       // 多短句按字数权重平滑翻页滚动，始终只显示当前正在说的 1~2 句短字幕
@@ -1714,7 +2085,7 @@
         }
         if (idx !== curIdx) {
           curIdx = idx;
-          renderSubtitleText(pages[idx]);
+          renderSubtitleText(pages[idx], speakerMeta);
         }
         if (elapsed >= estTotalMs + 600) {
           clearInterval(subtitleRollTimer);
@@ -1735,7 +2106,10 @@
       $("stage3dWrap").classList.toggle("hidden", !is3D);
       $("btnResetCam").style.display = is3D ? "inline-block" : "none";
 
-      if (is3D) $("modeOverlay").textContent = "🧍 Three.js 3D 实时对口型 (60fps)";
+      if (roomMode === "group" && is3D) {
+        const n = getEnabledGroupCharacters().length;
+        $("modeOverlay").textContent = `👥 多角色 3D 群聊舞台 (${n}人同台 · 60fps)`;
+      } else if (is3D) $("modeOverlay").textContent = "🧍 Three.js 3D 实时对口型 (60fps)";
       else if (isFast) $("modeOverlay").textContent = "⚡ 2D 极速流式语音 (~1秒开口)";
       else $("modeOverlay").textContent = "🎬 MiniMax H3 写实对口型";
 
@@ -1744,7 +2118,11 @@
 
     function switchAvatarState(nextState) {
       isThinking = nextState === "thinking";
-      avatar3d.setState(nextState === "talking" ? "speaking" : nextState);
+      if (roomMode === "group" && nextState === "talking") {
+        // 群聊说话时由 setActiveSpeaker 单独指定当前发言者与听众，避免全员同时 speaking
+      } else {
+        avatar3d.setState(nextState === "talking" ? "speaking" : nextState);
+      }
 
       if (speakMode !== "3d") {
         lipSyncVideo.classList.remove("active");
@@ -1761,14 +2139,20 @@
       }
 
       if (nextState === "idle") {
-        setBadge("😌 待机中");
+        setBadge(roomMode === "group" ? "👥 群聊待机中" : "😌 待机中");
         clearTimeout(subtitleClearTimer);
         subtitleClearTimer = setTimeout(() => {
           if (!isSpeaking) renderSubtitleText("");
         }, 2600);
-      } else if (nextState === "listening") setBadge("👂 正在聆听...");
-      else if (nextState === "thinking") setBadge("🧠 正在阅读资料并思考...", "syncing");
-      else if (nextState === "talking") setBadge(speakMode === "3d" ? "🗣️ 3D 实时对口型播报中" : "💬 正在回复", "speaking");
+      } else if (nextState === "listening") {
+        setBadge(roomMode === "group" ? "👂 全员正在聆听..." : "👂 正在聆听...");
+      } else if (nextState === "thinking") {
+        setBadge(roomMode === "group" ? "🧠 全员正在听懂并各自酝酿反应..." : "🧠 正在阅读资料并思考...", "syncing");
+      } else if (nextState === "talking") {
+        if (roomMode !== "group") {
+          setBadge(speakMode === "3d" ? "🗣️ 3D 实时对口型播报中" : "💬 正在回复", "speaking");
+        }
+      }
     }
 
     function warmUpVideos() {
@@ -1782,11 +2166,21 @@
 
     function stopCurrentSpeech() {
       activeTurnId += 1;
+      if (groupAutoBanterTimer) {
+        clearTimeout(groupAutoBanterTimer);
+        groupAutoBanterTimer = null;
+      }
       if (activeAbort) {
         activeAbort.abort();
         activeAbort = null;
       }
       avatar3d.stopActiveAudio();
+      if (roomMode === "group") {
+        avatar3d.setActiveSpeaker(null, "user");
+        for (const item of groupNameplateEls.values()) {
+          item.plate.classList.remove("speaking");
+        }
+      }
       if (currentTtsAudio) {
         currentTtsAudio.pause();
         currentTtsAudio.src = "";
@@ -1918,7 +2312,7 @@
       }
     }
 
-    async function fetchTtsSpeechPack(sentence, signal = null, timeoutMs = 20000) {
+    async function fetchTtsSpeechPack(sentence, signal = null, timeoutMs = 20000, voiceOpts = null) {
       const ttsCtrl = new AbortController();
       const onParentAbort = () => ttsCtrl.abort();
       if (signal) {
@@ -1930,14 +2324,17 @@
       }
       const timer = setTimeout(() => ttsCtrl.abort(), timeoutMs);
       try {
+        const reqBody = {
+          text: sentence,
+          voice: (voiceOpts && voiceOpts.voice) || $("selVoice").value,
+          engine: $("selTtsEngine").value,
+        };
+        if (voiceOpts && voiceOpts.rate) reqBody.rate = voiceOpts.rate;
+        if (voiceOpts && voiceOpts.pitch) reqBody.pitch = voiceOpts.pitch;
         const res = await fetch("/api/tts_speech", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            text: sentence,
-            voice: $("selVoice").value,
-            engine: $("selTtsEngine").value,
-          }),
+          body: JSON.stringify(reqBody),
           signal: ttsCtrl.signal,
         });
         const data = await res.json();
@@ -1953,17 +2350,31 @@
       }
     }
 
-    async function playAudioBlob(blob, turnId, timeline = null) {
+    async function playAudioBlob(blob, turnId, timeline = null, actorOpts = null) {
       if (turnId !== activeTurnId) return;
+      const speakerId = actorOpts && actorOpts.speakerId ? actorOpts.speakerId : null;
+      const targetId = (actorOpts && actorOpts.targetId) || "user";
       // 优先使用已解锁的 Web Audio API（AudioBufferSourceNode），彻底解决 iOS Safari / Android 手机异步音频被拦截静音的问题！
       if (avatar3dReady && typeof avatar3d.playAudioBufferBlob === "function") {
         try {
-          await avatar3d.playAudioBufferBlob(blob, timeline, {
-            onStart: () => {
-              if (turnId === activeTurnId) switchAvatarState("talking");
-            },
-            isCancelled: () => turnId !== activeTurnId,
-          });
+          if (roomMode === "group" && speakerId && typeof avatar3d.playAudioBufferBlobForActor === "function") {
+            await avatar3d.playAudioBufferBlobForActor(speakerId, blob, timeline, {
+              targetId,
+              onStart: () => {
+                if (turnId === activeTurnId && typeof actorOpts.onStart === "function") {
+                  actorOpts.onStart();
+                }
+              },
+              isCancelled: () => turnId !== activeTurnId,
+            });
+          } else {
+            await avatar3d.playAudioBufferBlob(blob, timeline, {
+              onStart: () => {
+                if (turnId === activeTurnId) switchAvatarState("talking");
+              },
+              isCancelled: () => turnId !== activeTurnId,
+            });
+          }
           return;
         } catch (err) {
           console.warn("[WebAudio TTS Fallback]", err);
@@ -1977,7 +2388,7 @@
         audio.playsInline = true;
         audio.crossOrigin = "anonymous";
         currentTtsAudio = audio;
-        avatar3d.attachAudioElement(audio, timeline);
+        avatar3d.attachAudioElement(audio, timeline, speakerId);
 
         let settled = false;
         let safetyTimer = setTimeout(() => done(), 45000);
@@ -1997,7 +2408,15 @@
             safetyTimer = setTimeout(() => done(), Math.max(4500, Math.ceil(audio.duration * 1000) + 3500));
           }
         };
-        audio.onplay = () => { if (turnId === activeTurnId) switchAvatarState("talking"); };
+        audio.onplay = () => {
+          if (turnId !== activeTurnId) return;
+          if (roomMode === "group" && speakerId) {
+            avatar3d.setActiveSpeaker(speakerId, targetId);
+            if (typeof actorOpts?.onStart === "function") actorOpts.onStart();
+          } else {
+            switchAvatarState("talking");
+          }
+        };
         audio.onended = done;
         audio.onerror = done;
         audio.play().catch(done);
@@ -2096,10 +2515,789 @@
       return d;
     }
 
+    // --- 多角色 3D 群聊前端引擎：成员配置、舞台同步、悬浮名牌/气泡、流式接话与顺序语音播报 ---
+    function getEnabledGroupCharacters() {
+      const enabled = groupCharacters.filter((c) => c.enabled);
+      if (enabled.length >= 2) return enabled.slice(0, 4);
+      return groupCharacters.slice(0, Math.min(3, groupCharacters.length));
+    }
+
+    function getGroupCharById(id) {
+      return groupCharacters.find((c) => c.id === id) || null;
+    }
+
+    function populateEditCharVrmOptions(selectedUrl = "") {
+      const sel = $("editCharVrm");
+      if (!sel) return;
+      const cur = selectedUrl || sel.value;
+      sel.innerHTML = "";
+      const list = vrmModelsMeta.length
+        ? vrmModelsMeta
+        : [
+            { name: "AvatarSample_B.vrm", url: "/assets/vrm/AvatarSample_B.vrm" },
+            { name: "Sendagaya_Shibu.vrm", url: "/assets/vrm/Sendagaya_Shibu.vrm" },
+            { name: "Vivi.vrm", url: "/assets/vrm/Vivi.vrm" },
+            { name: "Victoria_Rubin.vrm", url: "/assets/vrm/Victoria_Rubin.vrm" },
+            { name: "AvatarSample_C.vrm", url: "/assets/vrm/AvatarSample_C.vrm" },
+            { name: "AvatarSample_A.vrm", url: "/assets/vrm/AvatarSample_A.vrm" },
+          ];
+      list.forEach((m) => {
+        const opt = document.createElement("option");
+        opt.value = m.url;
+        opt.textContent = VRM_LABELS[m.name] || m.name.replace(/\.vrm$/i, "");
+        sel.appendChild(opt);
+      });
+      if (cur) sel.value = cur;
+      if (!sel.value && sel.options.length) sel.selectedIndex = 0;
+    }
+
+    async function loadGroupCharacters({ syncStage = false } = {}) {
+      try {
+        const r = await fetch("/api/group/characters");
+        const d = await r.json();
+        if (Array.isArray(d.characters)) {
+          groupCharacters = d.characters;
+        }
+      } catch (e) {
+        console.warn("[GroupCharacters] 加载失败:", e);
+      }
+      renderGroupRoster();
+      const active = getEnabledGroupCharacters();
+      $("lblActiveCount").textContent = String(active.length);
+      if (roomMode === "group") {
+        rebuildGroupNameplates(active);
+        updateModeUI();
+        if (syncStage && avatar3dReady) {
+          await syncGroupStageAvatars();
+        }
+      }
+    }
+
+    function rebuildGroupNameplates(activeChars) {
+      const layer = $("groupNameplatesLayer");
+      if (!layer) return;
+      for (const item of groupNameplateEls.values()) {
+        if (item.hideTimer) clearTimeout(item.hideTimer);
+      }
+      groupNameplateEls.clear();
+      layer.innerHTML = "";
+
+      activeChars.forEach((c) => {
+        const plate = document.createElement("div");
+        plate.className = "actor-plate";
+        plate.style.setProperty("--actor-color", c.color || "#60a5fa");
+        plate.title = `点击 @${c.name}（${c.role}）优先点名对话`;
+
+        const bubble = document.createElement("div");
+        bubble.className = "actor-reaction-bubble";
+        bubble.textContent = "";
+
+        const pill = document.createElement("div");
+        pill.className = "actor-name-pill";
+
+        const dot = document.createElement("span");
+        dot.className = "actor-dot";
+        const nameSpan = document.createElement("span");
+        nameSpan.textContent = c.name;
+        const roleSpan = document.createElement("span");
+        roleSpan.className = "actor-role-tag";
+        roleSpan.textContent = c.role || "";
+
+        pill.appendChild(dot);
+        pill.appendChild(nameSpan);
+        if (c.role) pill.appendChild(roleSpan);
+
+        plate.appendChild(bubble);
+        plate.appendChild(pill);
+        plate.addEventListener("click", (e) => {
+          e.stopPropagation();
+          handleActorMentionClick(c.id);
+        });
+
+        layer.appendChild(plate);
+        groupNameplateEls.set(c.id, { plate, bubble, pill, hideTimer: null });
+      });
+    }
+
+    function updateGroupNameplates(list) {
+      if (roomMode !== "group" || !Array.isArray(list)) return;
+      const layer = $("groupNameplatesLayer");
+      if (!layer) return;
+      const w = layer.clientWidth || 1;
+      const h = layer.clientHeight || 1;
+      const padX = Math.min(72, Math.max(44, w * 0.09));
+
+      for (const item of list) {
+        const entry = groupNameplateEls.get(item.id);
+        if (!entry) continue;
+        if (!item.visible) {
+          entry.plate.style.display = "none";
+          continue;
+        }
+        entry.plate.style.display = "flex";
+        const cx = Math.max(padX, Math.min(w - padX, item.x));
+        const cy = Math.max(58, Math.min(h - 68, item.y));
+        entry.plate.style.transform = `translate3d(${cx.toFixed(1)}px, ${cy.toFixed(1)}px, 0) translate(-50%, -100%)`;
+        entry.plate.classList.toggle("speaking", !!item.speaking);
+      }
+    }
+
+    function showActorReactionBubble(actorId, badgeText, holdMs = 4200) {
+      const entry = groupNameplateEls.get(actorId);
+      if (!entry || !badgeText) return;
+      if (entry.hideTimer) clearTimeout(entry.hideTimer);
+      entry.bubble.textContent = badgeText;
+      entry.bubble.classList.add("show");
+      entry.hideTimer = setTimeout(() => {
+        entry.bubble.classList.remove("show");
+        entry.hideTimer = null;
+      }, holdMs);
+    }
+
+    function handleActorMentionClick(actorId) {
+      if (roomMode !== "group") return;
+      const ch = getGroupCharById(actorId);
+      if (!ch) return;
+      avatar3d.setActorReaction(actorId, { emotion: "happy", gesture: "wave", holdSec: 2.2 });
+      showActorReactionBubble(actorId, "在呢，你说~", 2400);
+      const input = $("txtInput");
+      const prefix = `@${ch.name} `;
+      const cur = input.value || "";
+      if (!cur.includes(ch.name)) {
+        input.value = prefix + cur;
+      }
+      input.focus();
+      $("interimText").textContent = `已 @点名 ${ch.name}（${ch.role}），发送消息或直接开口叫TA名字即可优先回应！`;
+    }
+
+    async function syncGroupStageAvatars({ force = false } = {}) {
+      if (roomMode !== "group" || !avatar3dReady) return;
+      if (!groupCharacters.length) {
+        await loadGroupCharacters({ syncStage: false });
+      }
+      const active = getEnabledGroupCharacters();
+      if (!active.length) return;
+
+      rebuildGroupNameplates(active);
+      $("lblActiveCount").textContent = String(active.length);
+      updateModeUI();
+
+      const sig = active.map((c) => `${c.id}:${c.vrm_url}`).join("|");
+      if (!force && sig === groupStageSignature && avatar3d.groupMode) {
+        return;
+      }
+      if (groupStageLoading) return;
+      groupStageLoading = true;
+
+      const blobUrls = [];
+      try {
+        const entries = [];
+        for (let i = 0; i < active.length; i++) {
+          const c = active[i];
+          const vrmUrl = c.vrm_url || "/assets/vrm/AvatarSample_B.vrm";
+          showVrmOverlay(
+            `🎭 准备群聊舞台 (${i + 1}/${active.length})：${c.name}`,
+            "已缓存角色将直接从本地秒开，首次加载自动持久化缓存",
+            Math.round(((i + 0.2) / active.length) * 100),
+            false
+          );
+          const { blob } = await downloadAndCacheVrm(vrmUrl, { forceDownload: false, maxRetries: 3, quiet: true });
+          const blobUrl = URL.createObjectURL(blob);
+          blobUrls.push(blobUrl);
+          entries.push({
+            id: c.id,
+            name: c.name,
+            role: c.role,
+            color: c.color,
+            blobUrl,
+            sourceUrl: vrmUrl,
+          });
+        }
+        await avatar3d.loadGroupAvatars(entries, (idx, total, name) => {
+          showVrmOverlay(
+            `🎭 正在上台 (${idx}/${total})：${name}`,
+            "正在装配 3D 骨骼、微表情与半圆弧对视站位...",
+            Math.round((idx / total) * 100),
+            false
+          );
+        });
+        groupStageSignature = sig;
+        hideVrmOverlay();
+        $("pill3d").className = "pill ok";
+        await refreshCacheStatusUI();
+      } catch (e) {
+        hideVrmOverlay();
+        $("pill3d").textContent = "Three.js 3D: 群舞台加载异常，请重试";
+        $("pill3d").className = "pill warn";
+        console.error("[syncGroupStageAvatars]", e);
+      } finally {
+        blobUrls.forEach((u) => { try { URL.revokeObjectURL(u); } catch (_) {} });
+        groupStageLoading = false;
+      }
+    }
+
+    async function setRoomMode(mode, { forceReload = false } = {}) {
+      const nextMode = mode === "group" ? "group" : "single";
+      const changed = roomMode !== nextMode;
+      roomMode = nextMode;
+      localStorage.setItem("avatar_room_mode", roomMode);
+
+      if (changed) {
+        stopCurrentSpeech();
+      }
+      if (roomMode === "group" && speakMode !== "3d") {
+        speakMode = "3d";
+      }
+
+      $("btnRoomSingle").classList.toggle("selected", roomMode === "single");
+      $("btnRoomGroup").classList.toggle("selected", roomMode === "group");
+      $("groupBar").classList.toggle("active", roomMode === "group");
+      $("groupNameplatesLayer").classList.toggle("active", roomMode === "group");
+      if (roomMode === "single") {
+        $("groupRosterCard").classList.remove("open");
+      }
+
+      $("brandTitle").textContent = roomMode === "group"
+        ? "小汐与TA的朋友们 · 3D 多角色实时语音群聊"
+        : "小汐 · 3D 实时语音虚拟人像 & 资料沟通";
+      $("chatCardTitle").textContent = roomMode === "group" ? "👥 多角色实时群聊" : "💬 资料沟通对话";
+      $("txtInput").placeholder = roomMode === "group"
+        ? "向全员发言（点击舞台角色或名牌可 @TA，或直接开口语音群聊）..."
+        : "输入问题或直接开口聊天，回车发送...";
+
+      updateModeUI();
+      switchAvatarState("idle");
+
+      if (roomMode === "group") {
+        if (!groupCharacters.length) {
+          await loadGroupCharacters({ syncStage: false });
+        }
+        const active = getEnabledGroupCharacters();
+        rebuildGroupNameplates(active);
+        if (avatar3dReady) {
+          await syncGroupStageAvatars({ force: forceReload || !avatar3d.groupMode });
+        }
+        if (changed && groupHistory.length === 0) {
+          const names = active.map((c) => `${c.name}（${c.role}）`).join("、");
+          addMsg(
+            "assistant",
+            `👥 已进入多角色 3D 群聊！当前同台成员：${names}。直接开口或打字抛个话题，大家都会听见并给出各自不同反应、互相接话/吐槽；点击人物或名牌可以 @点名，也可以点「🔥 让TA们接着聊」看TA们自己聊起来！`
+          );
+        }
+      } else if (changed && avatar3dReady && avatar3d.groupMode) {
+        groupStageSignature = "";
+        const soloUrl = $("selVrmModel").value || localStorage.getItem("avatar_vrm_url") || (vrmModelsMeta[0] && vrmModelsMeta[0].url);
+        if (soloUrl) await loadVrmWithCache(soloUrl);
+      }
+    }
+
+    function openCharEditor(ch = null) {
+      populateEditCharVrmOptions(ch?.vrm_url || "");
+      $("charEditorTitle").textContent = ch ? `✏️ 编辑角色：${ch.name}` : "＋ 新增自定义群聊角色";
+      $("editCharId").value = ch ? ch.id : "";
+      $("editCharName").value = ch ? ch.name : "";
+      $("editCharRole").value = ch ? ch.role : "";
+      if (ch && ch.vrm_url) $("editCharVrm").value = ch.vrm_url;
+      $("editCharVoice").value = ch ? ch.voice : "zh-CN-XiaoyiNeural";
+      $("editCharRate").value = ch ? ch.rate : "+0%";
+      $("editCharPitch").value = ch ? ch.pitch : "+0Hz";
+      $("editCharColor").value = ch ? ch.color : "#38bdf8";
+      $("editCharPersona").value = ch ? ch.personality : "";
+      $("charEditorForm").classList.add("open");
+      $("editCharName").focus();
+    }
+
+    function renderGroupRoster() {
+      const grid = $("rosterGrid");
+      if (!grid) return;
+      grid.innerHTML = "";
+      const enabledCount = groupCharacters.filter((c) => c.enabled).length;
+      $("lblActiveCount").textContent = String(Math.min(4, Math.max(enabledCount, Math.min(3, groupCharacters.length))));
+
+      groupCharacters.forEach((ch) => {
+        const card = document.createElement("div");
+        card.className = "roster-item" + (ch.enabled ? " enabled" : "");
+        card.style.setProperty("--actor-color", ch.color || "#60a5fa");
+
+        const head = document.createElement("div");
+        head.className = "roster-item-head";
+
+        const nameWrap = document.createElement("label");
+        nameWrap.className = "roster-item-name";
+        nameWrap.style.cursor = "pointer";
+
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.checked = !!ch.enabled;
+        cb.onchange = async () => {
+          const curEnabled = groupCharacters.filter((x) => x.enabled);
+          if (cb.checked && curEnabled.length >= 4) {
+            cb.checked = false;
+            $("interimText").textContent = "群聊舞台最多同时上台 4 位 3D 角色，请先取消勾选 1 位再添加。";
+            return;
+          }
+          if (!cb.checked && curEnabled.length <= 2) {
+            cb.checked = true;
+            $("interimText").textContent = "群聊至少需要 2 位角色同台哦。";
+            return;
+          }
+          const updated = { ...ch, enabled: cb.checked };
+          try {
+            const r = await fetch("/api/group/characters", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(updated),
+            });
+            const d = await r.json();
+            if (r.ok && Array.isArray(d.characters)) {
+              groupCharacters = d.characters;
+              renderGroupRoster();
+              if (roomMode === "group") await syncGroupStageAvatars();
+            }
+          } catch (e) {
+            console.error(e);
+            cb.checked = !cb.checked;
+          }
+        };
+
+        const dot = document.createElement("span");
+        dot.className = "actor-dot";
+        dot.style.background = ch.color || "#60a5fa";
+        const nm = document.createElement("span");
+        nm.textContent = ch.name;
+
+        nameWrap.appendChild(cb);
+        nameWrap.appendChild(dot);
+        nameWrap.appendChild(nm);
+
+        const roleBadge = document.createElement("span");
+        roleBadge.className = "small-note";
+        roleBadge.textContent = ch.role;
+
+        head.appendChild(nameWrap);
+        head.appendChild(roleBadge);
+
+        const desc = document.createElement("div");
+        desc.className = "roster-item-desc";
+        desc.textContent = ch.personality || "";
+
+        const foot = document.createElement("div");
+        foot.className = "btn-row";
+        foot.style.justifyContent = "space-between";
+
+        const voiceLabel = document.createElement("span");
+        voiceLabel.className = "small-note";
+        voiceLabel.textContent = (ch.voice || "").replace("zh-CN-", "").replace("Neural", "");
+
+        const actBtns = document.createElement("div");
+        actBtns.className = "btn-row";
+        const btnEdit = document.createElement("button");
+        btnEdit.className = "mini";
+        btnEdit.textContent = "编辑";
+        btnEdit.onclick = () => openCharEditor(ch);
+        actBtns.appendChild(btnEdit);
+
+        if (groupCharacters.length > 2) {
+          const btnDel = document.createElement("button");
+          btnDel.className = "mini";
+          btnDel.textContent = "删除";
+          btnDel.onclick = async () => {
+            if (!confirm(`确认删除群聊角色「${ch.name}」吗？`)) return;
+            const r = await fetch(`/api/group/characters/${encodeURIComponent(ch.id)}`, { method: "DELETE" });
+            const d = await r.json();
+            if (r.ok && Array.isArray(d.characters)) {
+              groupCharacters = d.characters;
+              renderGroupRoster();
+              if (roomMode === "group") await syncGroupStageAvatars();
+            } else {
+              alert(d.detail || "删除失败");
+            }
+          };
+          actBtns.appendChild(btnDel);
+        }
+
+        foot.appendChild(voiceLabel);
+        foot.appendChild(actBtns);
+
+        card.appendChild(head);
+        card.appendChild(desc);
+        card.appendChild(foot);
+        grid.appendChild(card);
+      });
+    }
+
+    function addGroupReactionStrip(reactionsMap) {
+      const entries = Object.entries(reactionsMap || {});
+      if (!entries.length) return null;
+      const strip = document.createElement("div");
+      strip.className = "reaction-strip";
+      for (const [cid, robj] of entries) {
+        const ch = getGroupCharById(cid);
+        if (!ch || !robj || !robj.badge) continue;
+        const chip = document.createElement("span");
+        chip.className = "reaction-chip";
+        const dot = document.createElement("span");
+        dot.className = "actor-dot";
+        dot.style.background = ch.color || "#60a5fa";
+        const txt = document.createElement("span");
+        txt.textContent = `${ch.name}: ${robj.badge}`;
+        chip.appendChild(dot);
+        chip.appendChild(txt);
+        strip.appendChild(chip);
+      }
+      if (!strip.childElementCount) return null;
+      $("chatLog").appendChild(strip);
+      $("chatLog").scrollTop = $("chatLog").scrollHeight;
+      return strip;
+    }
+
+    function addGroupSpeakerMsg(turnEv) {
+      const div = document.createElement("div");
+      div.className = "msg assistant group-speaker";
+      div.style.setProperty("--speaker-color", turnEv.speaker_color || "#60a5fa");
+
+      const head = document.createElement("div");
+      head.className = "msg-speaker-head";
+      const dot = document.createElement("span");
+      dot.className = "actor-dot";
+      dot.style.background = turnEv.speaker_color || "#60a5fa";
+      const nameEl = document.createElement("span");
+      nameEl.textContent = turnEv.speaker_name || "角色";
+      const roleEl = document.createElement("span");
+      roleEl.className = "msg-speaker-target";
+      roleEl.textContent = turnEv.speaker_role ? `· ${turnEv.speaker_role}` : "";
+      const targetEl = document.createElement("span");
+      targetEl.className = "msg-speaker-target";
+      if (turnEv.target_id && turnEv.target_id !== "user" && turnEv.target_name) {
+        targetEl.textContent = `↪ 回应 ${turnEv.target_name}`;
+      } else {
+        targetEl.textContent = "↪ 对你说";
+      }
+      head.appendChild(dot);
+      head.appendChild(nameEl);
+      if (turnEv.speaker_role) head.appendChild(roleEl);
+      head.appendChild(targetEl);
+
+      const body = document.createElement("div");
+      body.textContent = "";
+
+      const footer = document.createElement("div");
+      footer.className = "msg-footer";
+      const info = document.createElement("span");
+      info.textContent = "发言中...";
+      const actions = document.createElement("div");
+      actions.className = "msg-actions";
+      footer.appendChild(info);
+      footer.appendChild(actions);
+
+      div.appendChild(head);
+      div.appendChild(body);
+      div.appendChild(footer);
+      div._bodyEl = body;
+      div._infoEl = info;
+      div._actionsEl = actions;
+
+      $("chatLog").appendChild(div);
+      $("chatLog").scrollTop = $("chatLog").scrollHeight;
+      return div;
+    }
+
+    function attachGroupReplayButton(msgEl, turnRec) {
+      if (!msgEl || !msgEl._actionsEl || !turnRec || !turnRec.text) return;
+      msgEl._actionsEl.innerHTML = "";
+      const btn = document.createElement("button");
+      btn.className = "mini";
+      btn.textContent = "🔊 再听TA说";
+      btn.onclick = async () => {
+        stopCurrentSpeech();
+        const myTurn = activeTurnId;
+        setSpeakingFlag(true);
+        recordAvatarSpokenText(turnRec.text);
+        avatar3d.setActiveSpeaker(turnRec.speaker_id, turnRec.target_id || "user");
+        setBadge(`🗣️ ${turnRec.speaker_name} 正在发言`, "speaking");
+        setSubtitle(turnRec.text, 0, { name: turnRec.speaker_name, color: turnRec.speaker_color });
+        try {
+          const pack = await fetchTtsSpeechPack(turnRec.text, null, 20000, {
+            voice: turnRec.voice,
+            rate: turnRec.rate,
+            pitch: turnRec.pitch,
+          });
+          setSubtitle(turnRec.text, pack.timeline?.duration || 0, { name: turnRec.speaker_name, color: turnRec.speaker_color });
+          await playAudioBlob(pack.blob, myTurn, pack.timeline, {
+            speakerId: turnRec.speaker_id,
+            targetId: turnRec.target_id || "user",
+          });
+        } finally {
+          if (myTurn === activeTurnId) {
+            avatar3d.setActiveSpeaker(null, "user");
+            setSpeakingFlag(false);
+            switchAvatarState("idle");
+          }
+        }
+      };
+      msgEl._actionsEl.appendChild(btn);
+    }
+
+    async function sendGroupChat(text, { continueOnly = false } = {}) {
+      text = (text || "").trim();
+      if (!continueOnly && !text) return;
+
+      stopCurrentSpeech();
+      const myTurn = activeTurnId;
+      const activeChars = getEnabledGroupCharacters();
+      if (!activeChars.length) {
+        await loadGroupCharacters({ syncStage: true });
+      }
+
+      if (!continueOnly) {
+        addMsg("user", text);
+        groupHistory.push({ role: "user", speaker_id: "user", speaker_name: "用户", content: text });
+        if (groupHistory.length > 24) groupHistory = groupHistory.slice(-24);
+      }
+
+      switchAvatarState("thinking");
+      if (continueOnly) {
+        setBadge("🔥 群友正在自然接话续聊...", "syncing");
+      }
+
+      const ctrl = new AbortController();
+      activeAbort = ctrl;
+
+      const groupAudioQueue = [];
+      let queueRunning = false;
+      let streamFinished = false;
+      let lastTtsEngine = "";
+      let usedDocs = [];
+      let webResults = [];
+      const turnMsgMap = new Map();
+      let lastMsgEl = null;
+
+      function finishGroupRoundIfIdle() {
+        if (!streamFinished || queueRunning || groupAudioQueue.length > 0 || myTurn !== activeTurnId) return;
+        avatar3d.setActiveSpeaker(null, "user");
+        for (const item of groupNameplateEls.values()) {
+          item.plate.classList.remove("speaking");
+        }
+        setSpeakingFlag(false);
+        switchAvatarState("idle");
+
+        if ($("chkGroupAutoBanter").checked && !continueOnly && roomMode === "group") {
+          $("interimText").textContent = "🔁 自动续聊已开启：群友马上接着互相聊聊（开口说话即可随时插话打断）...";
+          groupAutoBanterTimer = setTimeout(() => {
+            groupAutoBanterTimer = null;
+            if (myTurn === activeTurnId && roomMode === "group" && !isSpeaking && !isThinking) {
+              sendGroupChat("", { continueOnly: true });
+            }
+          }, 1150);
+        }
+      }
+
+      async function pumpGroupAudioQueue() {
+        if (queueRunning) return;
+        queueRunning = true;
+        setSpeakingFlag(true);
+        try {
+          while (groupAudioQueue.length > 0 && myTurn === activeTurnId) {
+            const item = groupAudioQueue.shift();
+            if (item.kind === "listener_reactions") {
+              for (const [cid, robj] of Object.entries(item.reactions || {})) {
+                avatar3d.setActorReaction(cid, {
+                  emotion: robj.emotion || "relaxed",
+                  gesture: robj.gesture || "nod_agree",
+                  holdSec: 2.8,
+                });
+                if (robj.badge) showActorReactionBubble(cid, robj.badge, 3200);
+              }
+              continue;
+            }
+            try {
+              const pack = await item.promise;
+              lastTtsEngine = pack.engineUsed || lastTtsEngine;
+              if (myTurn !== activeTurnId) break;
+
+              recordAvatarSpokenText(item.text);
+              avatar3d.setActiveSpeaker(item.speakerId, item.targetId || "user");
+              avatar3d.setActorReaction(item.speakerId, {
+                emotion: item.emotion || "relaxed",
+                gesture: item.gesture || "explain_open",
+                holdSec: Math.min(3.5, Math.max(1.8, (pack.timeline?.duration || 2.4))),
+              });
+              setBadge(`🗣️ ${item.speakerName} 正在发言`, "speaking");
+              setSubtitle(item.text, pack.timeline?.duration || 0, {
+                name: item.speakerName,
+                color: item.speakerColor,
+              });
+              await playAudioBlob(pack.blob, myTurn, pack.timeline, {
+                speakerId: item.speakerId,
+                targetId: item.targetId || "user",
+                onStart: () => {
+                  if (myTurn === activeTurnId) {
+                    setBadge(`🗣️ ${item.speakerName} 正在发言`, "speaking");
+                  }
+                },
+              });
+            } catch (err) {
+              if (err && err.name !== "AbortError") {
+                console.warn("[Group TTS Item Error]", err);
+              }
+            }
+          }
+        } finally {
+          queueRunning = false;
+          finishGroupRoundIfIdle();
+        }
+      }
+
+      try {
+        const res = await fetch("/api/group/stream", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            text: continueOnly ? "" : text,
+            history: groupHistory.slice(-16),
+            character_ids: getEnabledGroupCharacters().map((c) => c.id),
+            group_mode: $("selGroupMode").value || "free",
+            speaker_budget: parseInt($("selGroupBudget").value || "3", 10),
+            continue_only: continueOnly,
+            llm_url: $("txtLlmUrl").value.trim(),
+            llm_model: $("txtLlmModel").value.trim(),
+            api_key: $("txtLlmKey").value.trim(),
+            use_docs: true,
+            web_search: $("chkWebSearch").checked ? $("selWebMode").value : "off",
+          }),
+          signal: ctrl.signal,
+        });
+        if (!res.ok) throw new Error("Group LLM HTTP " + res.status);
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder("utf-8");
+        let sseBuf = "";
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done || myTurn !== activeTurnId) break;
+          sseBuf += decoder.decode(value, { stream: true });
+          const parts = sseBuf.split("\n\n");
+          sseBuf = parts.pop() || "";
+
+          for (const part of parts) {
+            const line = part.trim();
+            if (!line.startsWith("data:")) continue;
+            let ev = null;
+            try { ev = JSON.parse(line.slice(5).trim()); } catch (_) { continue; }
+
+            if (ev.type === "searching") {
+              setBadge("🌐 全员正在联网检索实时信息...", "syncing");
+            } else if (ev.type === "meta") {
+              usedDocs = ev.used_docs || [];
+              webResults = ev.web_results || [];
+            } else if (ev.type === "group_reactions") {
+              // 全员听见用户发言瞬间的差异化 3D 微表情 + 动作 + 头顶反应气泡！
+              for (const [cid, robj] of Object.entries(ev.reactions || {})) {
+                avatar3d.setActorReaction(cid, {
+                  emotion: robj.emotion || "relaxed",
+                  gesture: robj.gesture || "nod_agree",
+                  holdSec: 3.6,
+                });
+                if (robj.badge) showActorReactionBubble(cid, robj.badge, 4600);
+              }
+              addGroupReactionStrip(ev.reactions);
+            } else if (ev.type === "turn_start") {
+              const msgEl = addGroupSpeakerMsg(ev);
+              turnMsgMap.set(ev.turn_index, msgEl);
+              lastMsgEl = msgEl;
+              if (!isSpeaking) {
+                avatar3d.setActiveSpeaker(ev.speaker_id, ev.target_id || "user");
+                setBadge(`💬 ${ev.speaker_name} 准备发言...`, "syncing");
+              }
+            } else if (ev.type === "delta") {
+              const msgEl = turnMsgMap.get(ev.turn_index);
+              if (msgEl && msgEl._bodyEl) {
+                msgEl._bodyEl.textContent += ev.text || "";
+                $("chatLog").scrollTop = $("chatLog").scrollHeight;
+              }
+            } else if (ev.type === "sentence") {
+              groupAudioQueue.push({
+                kind: "speech",
+                speakerId: ev.speaker_id,
+                speakerName: ev.speaker_name,
+                speakerColor: ev.speaker_color,
+                targetId: ev.target_id || "user",
+                text: ev.text,
+                emotion: ev.emotion,
+                gesture: ev.gesture,
+                promise: fetchTtsSpeechPack(ev.text, ctrl.signal, 20000, {
+                  voice: ev.voice,
+                  rate: ev.rate,
+                  pitch: ev.pitch,
+                }),
+              });
+              pumpGroupAudioQueue();
+            } else if (ev.type === "listener_reactions") {
+              groupAudioQueue.push({
+                kind: "listener_reactions",
+                reactions: ev.reactions || {},
+              });
+              pumpGroupAudioQueue();
+            } else if (ev.type === "turn_done") {
+              const msgEl = turnMsgMap.get(ev.turn_index);
+              if (msgEl) {
+                if (ev.text) msgEl._bodyEl.textContent = ev.text;
+                const infoParts = [];
+                if (ev.turn_index === 0 && webResults.length) infoParts.push(`🌐 已联网(${webResults.length}条)`);
+                if (ev.turn_index === 0 && usedDocs.length) infoParts.push("参考: " + usedDocs.join("、"));
+                if (lastTtsEngine) infoParts.push(lastTtsEngine);
+                msgEl._infoEl.textContent = infoParts.join(" · ") || "已发言";
+                attachGroupReplayButton(msgEl, ev);
+              }
+              if (ev.text) {
+                groupHistory.push({
+                  role: "assistant",
+                  speaker_id: ev.speaker_id,
+                  speaker_name: ev.speaker_name,
+                  content: ev.text,
+                });
+                if (groupHistory.length > 24) groupHistory = groupHistory.slice(-24);
+              }
+            } else if (ev.type === "done") {
+              if (webResults.length && lastMsgEl) {
+                const linksDiv = document.createElement("div");
+                linksDiv.style.cssText = "display:flex;flex-wrap:wrap;gap:6px;font-size:11px;margin-top:2px;";
+                webResults.slice(0, 3).forEach((item) => {
+                  if (!item.url) return;
+                  const a = document.createElement("a");
+                  a.href = item.url;
+                  a.target = "_blank";
+                  a.rel = "noopener noreferrer";
+                  a.textContent = "🔗 " + (item.title || "来源").slice(0, 22);
+                  a.style.cssText = "color:#93c5fd;text-decoration:none;background:rgba(96,165,250,0.12);padding:2px 6px;border-radius:6px;";
+                  linksDiv.appendChild(a);
+                });
+                if (linksDiv.childElementCount > 0) lastMsgEl.appendChild(linksDiv);
+              }
+            }
+          }
+        }
+
+        streamFinished = true;
+        finishGroupRoundIfIdle();
+      } catch (e) {
+        if (e.name !== "AbortError") {
+          console.error("[sendGroupChat]", e);
+          addMsg("assistant", "群聊请求失败，请检查右下角对话模型设置或服务状态。");
+          setSpeakingFlag(false);
+          switchAvatarState("idle");
+        }
+      }
+    }
+
     // 小智同款：SSE 流式对话 + 3D 60fps 实时对口型 / 4090 H3 写实对口型流式预渲染队列
     async function sendChat(text) {
       text = text.trim();
       if (!text) return;
+      if (roomMode === "group") {
+        return sendGroupChat(text, { continueOnly: false });
+      }
       stopCurrentSpeech();
       const myTurn = activeTurnId;
 
@@ -2820,9 +4018,105 @@
     });
 
     // 事件绑定
+    $("btnRoomSingle").addEventListener("click", () => setRoomMode("single"));
+    $("btnRoomGroup").addEventListener("click", () => {
+      warmUpVideos();
+      setRoomMode("group");
+    });
+    $("btnGroupContinue").addEventListener("click", () => {
+      warmUpVideos();
+      sendGroupChat("", { continueOnly: true });
+    });
+    $("selGroupMode").value = localStorage.getItem("avatar_group_mode") || "free";
+    $("selGroupMode").addEventListener("change", () => {
+      localStorage.setItem("avatar_group_mode", $("selGroupMode").value);
+    });
+    $("selGroupBudget").value = localStorage.getItem("avatar_group_budget") || "3";
+    $("selGroupBudget").addEventListener("change", () => {
+      localStorage.setItem("avatar_group_budget", $("selGroupBudget").value);
+    });
+    $("chkGroupAutoBanter").checked = localStorage.getItem("avatar_group_auto_banter") === "1";
+    $("chkGroupAutoBanter").addEventListener("change", () => {
+      localStorage.setItem("avatar_group_auto_banter", $("chkGroupAutoBanter").checked ? "1" : "0");
+    });
+
+    $("btnToggleGroupRoster").addEventListener("click", () => {
+      $("groupRosterCard").classList.toggle("open");
+      renderGroupRoster();
+    });
+    $("btnCloseRoster").addEventListener("click", () => {
+      $("groupRosterCard").classList.remove("open");
+      $("charEditorForm").classList.remove("open");
+    });
+    $("btnAddGroupChar").addEventListener("click", () => openCharEditor(null));
+    $("btnCancelCharEdit").addEventListener("click", () => $("charEditorForm").classList.remove("open"));
+    $("btnSaveCharEdit").addEventListener("click", async () => {
+      const name = $("editCharName").value.trim();
+      if (!name) {
+        alert("请填写角色名字");
+        return;
+      }
+      const existingId = $("editCharId").value.trim();
+      const existing = existingId ? getGroupCharById(existingId) : null;
+      const enabledCount = groupCharacters.filter((c) => c.enabled).length;
+      const payload = {
+        id: existingId,
+        name,
+        role: $("editCharRole").value.trim() || "群聊成员",
+        vrm_url: $("editCharVrm").value || "/assets/vrm/AvatarSample_A.vrm",
+        voice: $("editCharVoice").value || "zh-CN-XiaoyiNeural",
+        rate: $("editCharRate").value || "+0%",
+        pitch: $("editCharPitch").value || "+0Hz",
+        color: $("editCharColor").value || "#60a5fa",
+        enabled: existing ? !!existing.enabled : enabledCount < 4,
+        personality: $("editCharPersona").value.trim() || `你叫${name}，性格鲜明、喜欢在群里自然接话互动。`,
+        style_tags: existing?.style_tags || [],
+        default_emotion: existing?.default_emotion || "relaxed",
+        default_gesture: existing?.default_gesture || "nod_agree",
+      };
+      try {
+        const r = await fetch("/api/group/characters", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.detail || "保存失败");
+        if (Array.isArray(d.characters)) groupCharacters = d.characters;
+        $("charEditorForm").classList.remove("open");
+        renderGroupRoster();
+        if (roomMode === "group") {
+          await syncGroupStageAvatars({ force: true });
+        }
+        $("interimText").textContent = `✅ 已保存角色「${name}」并同步到群聊舞台！`;
+      } catch (err) {
+        alert("保存角色失败：" + err.message);
+      }
+    });
+    $("btnResetGroupChars").addEventListener("click", async () => {
+      if (!confirm("确认恢复默认的 5 位群聊角色与人设吗？")) return;
+      const r = await fetch("/api/group/characters/reset", { method: "POST" });
+      const d = await r.json();
+      if (r.ok && Array.isArray(d.characters)) {
+        groupCharacters = d.characters;
+        $("charEditorForm").classList.remove("open");
+        renderGroupRoster();
+        if (roomMode === "group") await syncGroupStageAvatars({ force: true });
+        $("interimText").textContent = "↺ 已恢复默认群聊角色列表。";
+      }
+    });
+
     $("btnMode3D").addEventListener("click", () => { speakMode = "3d"; updateModeUI(); });
-    $("btnModeFast").addEventListener("click", () => { speakMode = "fast"; updateModeUI(); });
-    $("btnModeLipSync").addEventListener("click", () => { speakMode = "lipsync"; updateModeUI(); });
+    $("btnModeFast").addEventListener("click", () => {
+      if (roomMode === "group") setRoomMode("single");
+      speakMode = "fast";
+      updateModeUI();
+    });
+    $("btnModeLipSync").addEventListener("click", () => {
+      if (roomMode === "group") setRoomMode("single");
+      speakMode = "lipsync";
+      updateModeUI();
+    });
     $("btnMic").addEventListener("click", toggleMic);
     $("btnStopSpeak").addEventListener("click", stopCurrentSpeech);
     $("btnHoldAsr").addEventListener("mousedown", startHoldAsr);
@@ -2839,7 +4133,11 @@
       sendChat(v);
     });
     $("txtInput").addEventListener("keydown", (e) => { if (e.key === "Enter") $("btnSend").click(); });
-    $("btnClearChat").addEventListener("click", () => { chatHistory = []; $("chatLog").innerHTML = ""; });
+    $("btnClearChat").addEventListener("click", () => {
+      if (roomMode === "group") groupHistory = [];
+      else chatHistory = [];
+      $("chatLog").innerHTML = "";
+    });
 
     $("btnPickFile").addEventListener("click", () => $("fileDoc").click());
     $("fileDoc").addEventListener("change", (e) => { if (e.target.files?.length) uploadDocFiles(e.target.files); e.target.value = ""; });
@@ -3208,7 +4506,15 @@
     updateModeUI();
     updateAccessBanner();
     refreshCacheStatusUI();
-    addMsg("assistant", "你好，我是小汐！现在已经切换为 Three.js 3D 实时虚拟人像，支持 60 帧零延迟语音对口型、眼神跟随与自由换装 .vrm 模型。你可以随时拖入资料直接和我语音聊天！");
+    loadGroupCharacters({ syncStage: false }).then(() => {
+      setRoomMode(roomMode, { forceReload: false });
+      if (roomMode === "group") {
+        const names = getEnabledGroupCharacters().map((c) => `${c.name}（${c.role}）`).join("、");
+        addMsg("assistant", `👥 欢迎回到多角色 3D 群聊！当前同台：${names}。直接说话或打字，大家都会听见并给出不同反应、互相接话！`);
+      } else {
+        addMsg("assistant", "你好，我是小汐！现在支持单人 3D 对话与顶部一键切换「👥 多人群聊」（多位 3D 角色同台倾听、各自反应、互相接话互怼）。你可以随时拖入资料或直接开口聊天！");
+      }
+    });
     refreshDocs();
     refreshStatus();
     setInterval(refreshStatus, 5000);
